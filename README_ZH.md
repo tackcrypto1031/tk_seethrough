@@ -1,5 +1,7 @@
 # ComfyUI-See-through（自訂 Fork）
 
+![預覽](https://raw.githubusercontent.com/tackcrypto1031/tk_seethrough/main/workflows/img_1.png)
+
 基於 [@jtydhr88](https://github.com/jtydhr88) 的 [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through) 修改，新增可跳過 head 細節推理階段的自訂節點，加速處理流程。
 
 [English](README.md)
