@@ -449,6 +449,8 @@ class SeeThrough_GenerateLayers_Custom:
                 "seed": ("INT", {"default": 42, "min": 0, "max": 2**32 - 1}),
                 "resolution": ("INT", {"default": 1280, "min": 512, "max": 2048, "step": 64}),
                 "num_inference_steps": ("INT", {"default": 30, "min": 1, "max": 100}),
+                "enable_head_detail": ("BOOLEAN", {"default": True,
+                    "tooltip": "v3 only: enable head detail stage (face, eyes, ears, etc). Disabling skips the 2nd inference pass and saves ~50% time."}),
             },
         }
         for tag in ALL_TAGS:
@@ -461,7 +463,7 @@ class SeeThrough_GenerateLayers_Custom:
     FUNCTION = "generate"
     CATEGORY = "SeeThrough"
 
-    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, **kwargs):
+    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, enable_head_detail=True, **kwargs):
         pipeline = layerdiff_model
 
         # Collect user-selected tags
@@ -502,11 +504,8 @@ class SeeThrough_GenerateLayers_Custom:
                     layer_dict[tag] = rst
 
         elif tag_version == "v3":
-            has_body = any(t in selected_tags for t in VALID_BODY_PARTS_V3_BODY)
-            has_head = any(t in selected_tags for t in VALID_BODY_PARTS_V3_HEAD)
-
-            if not has_body and not has_head:
-                raise ValueError("At least one valid tag must be selected for the current model's tag version (v3).")
+            if not any(t in selected_tags for t in VALID_BODY_PARTS_V3_BODY) and not enable_head_detail:
+                raise ValueError("At least one body tag must be selected, or enable head detail.")
 
             # Always pass full body tag list (model requires fixed-size input)
             body_tags = VALID_BODY_PARTS_V3_BODY
@@ -522,8 +521,8 @@ class SeeThrough_GenerateLayers_Custom:
                 if tag in selected_tags:
                     layer_dict[tag] = rst
 
-            # Head detail stage: run if user selected any head tags AND body stage produced a head layer
-            if has_head and "head" in all_body_results:
+            # Head detail stage: run only if enable_head_detail is on AND body stage produced a head layer
+            if enable_head_detail and "head" in all_body_results:
                 head_img = all_body_results["head"]
                 head_tags = VALID_BODY_PARTS_V3_HEAD
                 nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
