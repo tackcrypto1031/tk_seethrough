@@ -489,33 +489,43 @@ class SeeThrough_GenerateLayers_Custom:
         print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, steps={num_inference_steps}", flush=True)
 
         if tag_version == "v2":
-            active_tags = [t for t in VALID_BODY_PARTS_V2 if t in selected_tags]
-            if not active_tags:
+            if not any(t in selected_tags for t in VALID_BODY_PARTS_V2):
                 raise ValueError("At least one valid tag must be selected for the current model's tag version (v2).")
 
+            # Always pass full tag list to pipeline (model requires fixed-size input)
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0, prompt=active_tags,
+                           generator=rng, guidance_scale=1.0, prompt=VALID_BODY_PARTS_V2,
                            negative_prompt="", fullpage=fullpage)
-            for rst, tag in zip(out.images, active_tags):
-                layer_dict[tag] = rst
-
-        elif tag_version == "v3":
-            active_body_tags = [t for t in VALID_BODY_PARTS_V3_BODY if t in selected_tags]
-            active_head_tags = [t for t in VALID_BODY_PARTS_V3_HEAD if t in selected_tags]
-
-            if not active_body_tags and not active_head_tags:
-                raise ValueError("At least one valid tag must be selected for the current model's tag version (v3).")
-
-            if active_body_tags:
-                out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                               generator=rng, guidance_scale=1.0, prompt=active_body_tags,
-                               negative_prompt="", fullpage=fullpage, group_index=0)
-                for rst, tag in zip(out.images, active_body_tags):
+            # Only keep user-selected layers
+            for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
+                if tag in selected_tags:
                     layer_dict[tag] = rst
 
-            # Head detail stage: only if "head" was selected AND generated, AND there are head tags
-            if "head" in active_body_tags and active_head_tags and "head" in layer_dict:
-                head_img = layer_dict["head"]
+        elif tag_version == "v3":
+            has_body = any(t in selected_tags for t in VALID_BODY_PARTS_V3_BODY)
+            has_head = any(t in selected_tags for t in VALID_BODY_PARTS_V3_HEAD)
+
+            if not has_body and not has_head:
+                raise ValueError("At least one valid tag must be selected for the current model's tag version (v3).")
+
+            # Always pass full body tag list (model requires fixed-size input)
+            body_tags = VALID_BODY_PARTS_V3_BODY
+            out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
+                           generator=rng, guidance_scale=1.0, prompt=body_tags,
+                           negative_prompt="", fullpage=fullpage, group_index=0)
+            # Keep all body results temporarily (need "head" for head stage even if not selected)
+            all_body_results = {}
+            for rst, tag in zip(out.images, body_tags):
+                all_body_results[tag] = rst
+            # Only add user-selected body tags to final output
+            for tag, rst in all_body_results.items():
+                if tag in selected_tags:
+                    layer_dict[tag] = rst
+
+            # Head detail stage: run if user selected any head tags AND body stage produced a head layer
+            if has_head and "head" in all_body_results:
+                head_img = all_body_results["head"]
+                head_tags = VALID_BODY_PARTS_V3_HEAD
                 nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
                 if nz is not None:
                     hx0, hy0, hw, hh = cv2.boundingRect(nz)
@@ -527,8 +537,9 @@ class SeeThrough_GenerateLayers_Custom:
                     ih, iw = input_head.shape[:2]
                     input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
 
+                    # Always pass full head tag list (model requires fixed-size input)
                     out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                                   generator=rng, guidance_scale=1.0, prompt=active_head_tags,
+                                   generator=rng, guidance_scale=1.0, prompt=head_tags,
                                    negative_prompt="", fullpage=input_head, group_index=1)
 
                     canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
@@ -536,11 +547,13 @@ class SeeThrough_GenerateLayers_Custom:
                     py1, py2, px1, px2 = (coords / scale).astype(np.int64)
                     scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
 
-                    for rst, tag in zip(out.images, active_head_tags):
-                        rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
-                        full = canvas.copy()
-                        full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
-                        layer_dict[tag] = full
+                    # Only keep user-selected head layers
+                    for rst, tag in zip(out.images, head_tags):
+                        if tag in selected_tags:
+                            rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
+                            full = canvas.copy()
+                            full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
+                            layer_dict[tag] = full
         else:
             raise ValueError(f"Unknown tag version: {tag_version}")
 
