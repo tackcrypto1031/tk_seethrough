@@ -80,6 +80,22 @@ VALID_BODY_PARTS_V2 = [
     "bottomwear", "legwear", "footwear", "tail", "wings", "objects",
 ]
 
+VALID_BODY_PARTS_V3_BODY = [
+    "front hair", "back hair", "head", "neck", "neckwear",
+    "topwear", "handwear", "bottomwear", "legwear", "footwear",
+    "tail", "wings", "objects",
+]
+
+VALID_BODY_PARTS_V3_HEAD = [
+    "headwear", "face", "irides", "eyebrow", "eyewhite",
+    "eyelash", "eyewear", "ears", "earwear", "nose", "mouth",
+]
+
+# All unique tags across v2 + v3 (24 total), used for boolean INPUT_TYPES
+ALL_TAGS = list(dict.fromkeys(
+    VALID_BODY_PARTS_V2 + VALID_BODY_PARTS_V3_BODY + VALID_BODY_PARTS_V3_HEAD
+))
+
 SEETHROUGH_MODELS_DIR = os.path.join(folder_paths.models_dir, "SeeThrough")
 os.makedirs(SEETHROUGH_MODELS_DIR, exist_ok=True)
 
