@@ -91,7 +91,7 @@ VALID_BODY_PARTS_V3_HEAD = [
     "eyelash", "eyewear", "ears", "earwear", "nose", "mouth",
 ]
 
-# All unique tags across v2 + v3 (24 total), used for boolean INPUT_TYPES
+# All unique tags across v2 + v3 (26 total), used for boolean INPUT_TYPES
 ALL_TAGS = list(dict.fromkeys(
     VALID_BODY_PARTS_V2 + VALID_BODY_PARTS_V3_BODY + VALID_BODY_PARTS_V3_HEAD
 ))
