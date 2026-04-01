@@ -442,7 +442,7 @@ class SeeThrough_GenerateLayers:
 class SeeThrough_GenerateLayers_Custom:
     @classmethod
     def INPUT_TYPES(cls):
-        inputs = {
+        return {
             "required": {
                 "image": ("IMAGE",),
                 "layerdiff_model": ("SEETHROUGH_LAYERDIFF_MODEL",),
@@ -453,26 +453,14 @@ class SeeThrough_GenerateLayers_Custom:
                     "tooltip": "v3 only: enable head detail stage (face, eyes, ears, etc). Disabling skips the 2nd inference pass and saves ~50% time."}),
             },
         }
-        for tag in ALL_TAGS:
-            param_name = tag.replace(" ", "_")
-            inputs["required"][param_name] = ("BOOLEAN", {"default": True, "tooltip": tag})
-        return inputs
 
     RETURN_TYPES = ("SEETHROUGH_LAYERS", "IMAGE")
     RETURN_NAMES = ("layers", "preview")
     FUNCTION = "generate"
     CATEGORY = "SeeThrough"
 
-    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, enable_head_detail=True, **kwargs):
+    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, enable_head_detail=True):
         pipeline = layerdiff_model
-
-        # Collect user-selected tags
-        selected_tags = set()
-        for tag in ALL_TAGS:
-            param_name = tag.replace(" ", "_")
-            if kwargs.get(param_name, True):
-                selected_tags.add(tag)
-
         seed_everything(seed)
 
         # Convert ComfyUI IMAGE to numpy RGBA
@@ -488,42 +476,28 @@ class SeeThrough_GenerateLayers_Custom:
         tag_version = pipeline.unet.get_tag_version()
         layer_dict = {}
 
-        print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, steps={num_inference_steps}", flush=True)
+        print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
+              f"steps={num_inference_steps}, head_detail={enable_head_detail}", flush=True)
 
         if tag_version == "v2":
-            if not any(t in selected_tags for t in VALID_BODY_PARTS_V2):
-                raise ValueError("At least one valid tag must be selected for the current model's tag version (v2).")
-
-            # Always pass full tag list to pipeline (model requires fixed-size input)
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
                            generator=rng, guidance_scale=1.0, prompt=VALID_BODY_PARTS_V2,
                            negative_prompt="", fullpage=fullpage)
-            # Only keep user-selected layers
             for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
-                if tag in selected_tags:
-                    layer_dict[tag] = rst
+                layer_dict[tag] = rst
 
         elif tag_version == "v3":
-            if not any(t in selected_tags for t in VALID_BODY_PARTS_V3_BODY) and not enable_head_detail:
-                raise ValueError("At least one body tag must be selected, or enable head detail.")
-
-            # Always pass full body tag list (model requires fixed-size input)
+            # Stage 1: Body (always runs)
             body_tags = VALID_BODY_PARTS_V3_BODY
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
                            generator=rng, guidance_scale=1.0, prompt=body_tags,
                            negative_prompt="", fullpage=fullpage, group_index=0)
-            # Keep all body results temporarily (need "head" for head stage even if not selected)
-            all_body_results = {}
             for rst, tag in zip(out.images, body_tags):
-                all_body_results[tag] = rst
-            # Only add user-selected body tags to final output
-            for tag, rst in all_body_results.items():
-                if tag in selected_tags:
-                    layer_dict[tag] = rst
+                layer_dict[tag] = rst
 
-            # Head detail stage: run only if enable_head_detail is on AND body stage produced a head layer
-            if enable_head_detail and "head" in all_body_results:
-                head_img = all_body_results["head"]
+            # Stage 2: Head detail (skipped if enable_head_detail is off)
+            if enable_head_detail and "head" in layer_dict:
+                head_img = layer_dict["head"]
                 head_tags = VALID_BODY_PARTS_V3_HEAD
                 nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
                 if nz is not None:
@@ -536,7 +510,6 @@ class SeeThrough_GenerateLayers_Custom:
                     ih, iw = input_head.shape[:2]
                     input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
 
-                    # Always pass full head tag list (model requires fixed-size input)
                     out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
                                    generator=rng, guidance_scale=1.0, prompt=head_tags,
                                    negative_prompt="", fullpage=input_head, group_index=1)
@@ -546,13 +519,11 @@ class SeeThrough_GenerateLayers_Custom:
                     py1, py2, px1, px2 = (coords / scale).astype(np.int64)
                     scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
 
-                    # Only keep user-selected head layers
                     for rst, tag in zip(out.images, head_tags):
-                        if tag in selected_tags:
-                            rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
-                            full = canvas.copy()
-                            full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
-                            layer_dict[tag] = full
+                        rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
+                        full = canvas.copy()
+                        full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
+                        layer_dict[tag] = full
         else:
             raise ValueError(f"Unknown tag version: {tag_version}")
 
