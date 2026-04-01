@@ -1,29 +1,43 @@
-# ComfyUI-See-through
+# ComfyUI-See-through (Custom Fork)
 
-A ComfyUI plugin that wraps [See-through](https://github.com/shitagaki-lab/see-through) — an AI system that decomposes a single anime illustration into manipulatable 2.5D layer-decomposed models with depth ordering, ready for Live2D workflows.
+A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through) by [@jtydhr88](https://github.com/jtydhr88), adding a custom node with the option to skip the head detail inference stage for faster processing.
 
-[中文说明](README_CN.md)
+[中文說明](README_ZH.md)
 
-Paper: [arxiv:2602.03749](https://arxiv.org/abs/2602.03749) (Conditionally accepted to ACM SIGGRAPH 2026)
+## What's New in This Fork
 
-## Features
+### SeeThrough Generate Layers (Custom)
 
-- **Single-Image Layer Decomposition** — Input one anime character image, get up to 24 semantic transparent layers (hair, face, eyes, clothing, accessories, etc.)
-- **Depth Estimation** — Automatic depth map generation for each layer via fine-tuned Marigold, establishing correct drawing order
-- **Smart Splitting** — Eyes, ears, handwear split into left/right; hair split into front/back via depth clustering
-- **PSD Export** — Download layered PSD files directly from the browser (frontend ag-psd, no Python dependency)
-- **Depth PSD** — Separate depth PSD export for 3D/parallax workflows
-- **Preview Output** — Blended reconstruction preview as a standard ComfyUI IMAGE output
-- **HuggingFace Auto-Download** — Models download automatically from HuggingFace on first use
+A new node `SeeThrough_GenerateLayers_Custom` that adds one parameter compared to the original `SeeThrough Generate Layers`:
 
-## Nodes
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `enable_head_detail` | true | v3 models only: toggle the head detail inference stage on/off |
+
+#### How It Works
+
+The v3 See-through model runs in **two inference stages**:
+
+1. **Body stage** — Generates 13 body-level layers (front hair, back hair, head, neck, neckwear, topwear, handwear, bottomwear, legwear, footwear, tail, wings, objects)
+2. **Head stage** — Crops the head region from stage 1, upscales it, and runs a second inference pass to generate 11 fine-grained head layers (headwear, face, irides, eyebrow, eyewhite, eyelash, eyewear, ears, earwear, nose, mouth)
+
+Each stage is a full diffusion pipeline call. By setting `enable_head_detail = false`, the entire head stage is **skipped** (no GPU computation), saving approximately **50% of the total inference time**.
+
+This is useful when you only need body-level decomposition and don't require fine-grained facial features.
+
+> **Note:** For v2 models, this toggle has no effect since v2 uses a single-stage inference.
+
+## All Nodes
 
 | Node | Description |
 |------|-------------|
-| **SeeThrough Load LayerDiff Model** | Load the LayerDiff SDXL pipeline (layer generation) |
+| **SeeThrough Load LayerDiff Model** | Load the LayerDiff SDXL pipeline |
 | **SeeThrough Load Depth Model** | Load the Marigold depth estimation pipeline |
-| **SeeThrough Decompose** | Full pipeline: LayerDiff + Marigold depth + post-processing |
-| **SeeThrough Save PSD** | Save layers as PNGs + metadata; download PSD via browser button |
+| **SeeThrough Generate Layers** | Original layer generation (all stages, all layers) |
+| **SeeThrough Generate Layers (Custom)** | Layer generation with `enable_head_detail` toggle |
+| **SeeThrough Generate Depth** | Depth map estimation per layer |
+| **SeeThrough Post Process** | Left/right splitting, hair clustering, color restoration |
+| **SeeThrough Save PSD** | Export layers as PNGs + metadata; download PSD via browser |
 
 ## Installation
 
@@ -31,26 +45,17 @@ Clone this repository into your ComfyUI `custom_nodes` directory:
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/jtydhr88/ComfyUI-See-through.git
+git clone https://github.com/tackcrypto1031/tk_seethrough.git
 ```
 
 Install dependencies:
 
 ```bash
-cd ComfyUI-See-through
+cd tk_seethrough
 pip install -r requirements.txt
 ```
 
-Restart ComfyUI. The **SeeThrough** nodes will appear under the `SeeThrough` category.
-
-### Dependencies
-
-Only 4 additional Python packages beyond ComfyUI's base:
-
-- `diffusers` — Hugging Face diffusion pipeline
-- `accelerate` — Model loading acceleration
-- `opencv-python` — Image processing
-- `scikit-learn` — KMeans clustering for depth-based layer splitting
+Restart ComfyUI. The nodes will appear under the `SeeThrough` category.
 
 ### Models
 
@@ -61,51 +66,22 @@ Models are downloaded automatically from HuggingFace on first use:
 | LayerDiff 3D | `layerdifforg/seethroughv0.0.2_layerdiff3d` | SDXL-based transparent layer generation |
 | Marigold Depth | `24yearsold/seethroughv0.0.1_marigold` | Fine-tuned monocular depth for anime |
 
-Alternatively, download models manually and place them in `ComfyUI/models/SeeThrough/`.
+You can also download models manually and place them in `ComfyUI/models/SeeThrough/`.
 
 ## Usage
 
-### Basic Workflow
+1. Add **SeeThrough Load LayerDiff Model** and **SeeThrough Load Depth Model**
+2. Add **SeeThrough Generate Layers (Custom)** — connect both models and a **Load Image** node
+3. Uncheck `enable_head_detail` if you want faster processing without head detail layers
+4. Connect to **SeeThrough Generate Depth** → **SeeThrough Post Process** → **SeeThrough Save PSD**
+5. Run the workflow and click **Download PSD** to export
 
-1. Add **SeeThrough Load LayerDiff Model** and **SeeThrough Load Depth Model** nodes
-2. Add a **SeeThrough Decompose** node — connect both models and a **Load Image** node
-3. Add **SeeThrough Save PSD** — connect the `parts` output
-4. Add **Preview Image** — connect the `preview` output
-5. Run the workflow
-6. Click **Download PSD** button on the Save PSD node to generate and download the PSD file
+## Acknowledgements
 
-### Example Workflows
+This project is a fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through) by [@jtydhr88](https://github.com/jtydhr88). Huge thanks for creating the original ComfyUI integration.
 
-Pre-made workflows are available in the `workflows/` directory:
-
-| Workflow | Resolution | Steps | L/R Split | Description |
-|----------|-----------|-------|-----------|-------------|
-| `seethrough-basic.json` | 1280 | 30 | Yes | Standard quality, recommended |
-
-Drag any `.json` file into ComfyUI to load the workflow.
-
-### Parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `seed` | 42 | Random seed for reproducibility |
-| `resolution` | 1280 | Processing resolution (image is center-padded to square) |
-| `num_inference_steps` | 30 | Diffusion denoising steps (more = better quality, slower) |
-| `tblr_split` | true | Split symmetric parts (eyes, ears, handwear) into left/right |
-
-## Output Layers
-
-The decomposition produces semantic layers including:
-
-**Body parts:** front hair, back hair, neck, topwear, handwear, bottomwear, legwear, footwear, tail, wings, objects
-
-**Head parts:** headwear, face, irides, eyebrow, eyewhite, eyelash, eyewear, ears, earwear, nose, mouth
-
-Each layer is an RGBA image with transparency, positioned at its correct location in the canvas.
-
-## Credits
-
-This plugin wraps the [See-through](https://github.com/shitagaki-lab/see-through) research project by [shitagaki-lab](https://github.com/shitagaki-lab).
+The underlying research is [See-through](https://github.com/shitagaki-lab/see-through) by [shitagaki-lab](https://github.com/shitagaki-lab).
+Paper: [arxiv:2602.03749](https://arxiv.org/abs/2602.03749) (Conditionally accepted to ACM SIGGRAPH 2026)
 
 PSD generation uses [ag-psd](https://github.com/nicasiomg/ag-psd) in the browser.
 
