@@ -151,6 +151,85 @@ async function createPSD(layerInfo, psdType) {
     console.log(`[SeeThrough] PSD downloaded: ${prefix}_${timestamp}${suffix}.psd`);
 }
 
+async function createAllRunsPSD(layerInfo) {
+    await ensureAgPsdLoaded();
+
+    const { all_runs, width, height, prefix, timestamp } = layerInfo;
+    if (!all_runs || all_runs.length === 0) {
+        alert("No multi-run data available. Enable auto_fill and run with multiple inference passes.");
+        return;
+    }
+
+    console.log(`[SeeThrough] Creating All Runs PSD: ${width}x${height}, ${all_runs.length} runs`);
+
+    // Create composite canvas
+    const compositeCanvas = document.createElement("canvas");
+    compositeCanvas.width = width;
+    compositeCanvas.height = height;
+    const compositeCtx = compositeCanvas.getContext("2d");
+
+    const runGroups = [];
+
+    for (const runData of all_runs) {
+        const groupLayers = [];
+
+        for (const layer of runData.layers) {
+            const filename = layer.filename;
+            if (!filename) continue;
+
+            const url = api.apiURL(`/view?filename=${encodeURIComponent(filename)}&type=output&t=${Date.now()}`);
+            const img = await loadImage(url);
+
+            const lw = layer.right - layer.left;
+            const lh = layer.bottom - layer.top;
+
+            const layerCanvas = document.createElement("canvas");
+            layerCanvas.width = lw;
+            layerCanvas.height = lh;
+            const layerCtx = layerCanvas.getContext("2d");
+            layerCtx.drawImage(img, 0, 0, lw, lh);
+
+            groupLayers.push({
+                name: layer.name,
+                canvas: layerCanvas,
+                left: layer.left,
+                top: layer.top,
+                right: layer.right,
+                bottom: layer.bottom,
+                blendMode: "normal",
+                opacity: 1,
+            });
+        }
+
+        // Create group (folder) for this run
+        runGroups.push({
+            name: `Run ${runData.run} (seed=${runData.seed}, ${runData.layer_count} layers)`,
+            children: groupLayers,
+            opened: false,
+        });
+    }
+
+    const psd = {
+        width,
+        height,
+        canvas: compositeCanvas,
+        children: runGroups,
+    };
+
+    const psdBuffer = window.AgPsd.writePsd(psd);
+    const blob = new Blob([psdBuffer], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${prefix}_${timestamp}_all_runs.psd`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    console.log(`[SeeThrough] All Runs PSD downloaded: ${prefix}_${timestamp}_all_runs.psd`);
+}
+
 app.registerExtension({
     name: "ComfyUI-See-through.SavePSD",
 
@@ -230,6 +309,46 @@ app.registerExtension({
         );
         dlDepthBtn.color = "#6366F1";
         dlDepthBtn.bgcolor = "#4F46E5";
+
+        // Download All Runs PSD button (only useful with auto_fill)
+        const dlAllRunsBtn = node.addWidget(
+            "button",
+            "Download All Runs PSD",
+            "Download All Runs PSD",
+            async () => {
+                try {
+                    dlAllRunsBtn.name = "Generating All Runs PSD...";
+                    const logResp = await fetch(
+                        api.apiURL("/view?filename=seethrough_psd_info.log&type=output&t=" + Date.now())
+                    );
+                    if (!logResp.ok) {
+                        alert("Please run the workflow first to generate layers.");
+                        return;
+                    }
+                    const infoFilename = (await logResp.text()).trim();
+                    const infoResp = await fetch(
+                        api.apiURL(`/view?filename=${encodeURIComponent(infoFilename)}&type=output&t=${Date.now()}`)
+                    );
+                    if (!infoResp.ok) {
+                        alert("Failed to load layer information.");
+                        return;
+                    }
+                    const layerInfo = await infoResp.json();
+                    if (!layerInfo.all_runs || layerInfo.all_runs.length === 0) {
+                        alert("No multi-run data. Enable auto_fill in GenerateLayers_Custom to use this feature.");
+                        return;
+                    }
+                    await createAllRunsPSD(layerInfo);
+                } catch (error) {
+                    console.error("[SeeThrough] Error:", error);
+                    alert(`Failed to generate All Runs PSD: ${error.message}`);
+                } finally {
+                    dlAllRunsBtn.name = "Download All Runs PSD";
+                }
+            }
+        );
+        dlAllRunsBtn.color = "#F59E0B";
+        dlAllRunsBtn.bgcolor = "#D97706";
     },
 });
 

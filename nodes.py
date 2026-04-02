@@ -110,7 +110,7 @@ os.makedirs(SEETHROUGH_MODELS_DIR, exist_ok=True)
 
 class SeeThrough_LayersData:
     """Output of GenerateLayers: raw RGBA layers + preprocessing info."""
-    def __init__(self, layer_dict, fullpage, input_img, resolution, pad_size, pad_pos):
+    def __init__(self, layer_dict, fullpage, input_img, resolution, pad_size, pad_pos, all_runs_layers=None):
         self.layer_dict = layer_dict      # tag -> RGBA numpy (resolution x resolution)
         self.fullpage = fullpage           # center-padded input (resolution x resolution, RGBA)
         self.input_img = input_img         # original input (RGBA)
@@ -118,15 +118,17 @@ class SeeThrough_LayersData:
         self.pad_size = pad_size
         self.pad_pos = pad_pos
         self.scale = pad_size[0] / resolution
+        self.all_runs_layers = all_runs_layers  # list of {"run": int, "layer_dict": {tag: RGBA}} or None
 
 
 class SeeThrough_LayersDepthData:
     """Output of GenerateDepth: layers + per-tag depth maps."""
-    def __init__(self, layer_dict, depth_dict, fullpage, resolution):
+    def __init__(self, layer_dict, depth_dict, fullpage, resolution, all_runs_layers=None):
         self.layer_dict = layer_dict      # tag -> RGBA numpy
         self.depth_dict = depth_dict      # tag -> float32 depth [0,1]
         self.fullpage = fullpage
         self.resolution = resolution
+        self.all_runs_layers = all_runs_layers  # passed through from LayersData
 
 
 def seed_everything(seed):
@@ -662,6 +664,7 @@ class SeeThrough_GenerateLayers_Custom:
         _log_vram("UNet+VAE on GPU, ready for diffusion")
 
         max_runs = 5 if auto_fill else 1
+        all_runs_layers = []  # collect all run results for grouped PSD
 
         # --- Run 1: primary inference ---
         rng = torch.Generator(device=device).manual_seed(seed)
@@ -673,6 +676,10 @@ class SeeThrough_GenerateLayers_Custom:
             enable_head_detail=enable_head_detail, input_img=input_img,
             scale=scale, pad_pos=pad_pos, resolution=resolution)
         _log_vram("Run 1 diffusion complete")
+
+        # Store Run 1 results for grouped PSD
+        if auto_fill:
+            all_runs_layers.append({"run": 1, "seed": seed, "layer_dict": dict(layer_dict)})
 
         # Compute similarity scores for Run 1
         total_pixels = resolution * resolution
@@ -731,6 +738,9 @@ class SeeThrough_GenerateLayers_Custom:
                         scale=scale, pad_pos=pad_pos, resolution=resolution)
                     _log_vram(f"Run {run_idx} diffusion complete")
 
+                    # Store this run's results for grouped PSD
+                    all_runs_layers.append({"run": run_idx, "seed": run_seed, "layer_dict": dict(run_layer_dict)})
+
                     upgrades = 0
                     for tag in expected_tags:
                         if tag not in run_layer_dict:
@@ -774,7 +784,8 @@ class SeeThrough_GenerateLayers_Custom:
         _log_vram("GenerateLayers_Custom offloaded to CPU")
         print(f"[SeeThrough] GenerateLayers_Custom complete: {len(layer_dict)} layers, pipeline offloaded to CPU", flush=True)
 
-        layers_data = SeeThrough_LayersData(layer_dict, fullpage, input_img, resolution, pad_size, pad_pos)
+        layers_data = SeeThrough_LayersData(layer_dict, fullpage, input_img, resolution, pad_size, pad_pos,
+                                               all_runs_layers=all_runs_layers if all_runs_layers else None)
 
         preview_dict = {}
         for tag, img in layer_dict.items():
@@ -887,7 +898,8 @@ class SeeThrough_GenerateDepth:
 
         print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps, Marigold offloaded to CPU", flush=True)
 
-        result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution)
+        result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution,
+                                                all_runs_layers=getattr(layers, 'all_runs_layers', None))
 
         # Preview: blend with depth info
         preview_dict = {}
@@ -1013,7 +1025,9 @@ class SeeThrough_PostProcess:
                     tag2pinfo[t]["depth_median"] = face_dm + 0.001
 
         frame_size = fullpage.shape[:2]
-        parts_data = {"tag2pinfo": tag2pinfo, "frame_size": frame_size}
+        all_runs_layers = getattr(layers_depth, 'all_runs_layers', None)
+        parts_data = {"tag2pinfo": tag2pinfo, "frame_size": frame_size,
+                       "all_runs_layers": all_runs_layers}
 
         print(f"[SeeThrough] PostProcess complete: {len(tag2pinfo)} layers", flush=True)
         for tag, pinfo in sorted(tag2pinfo.items(), key=lambda x: x[1].get("depth_median", 1)):
@@ -1082,11 +1096,52 @@ class SeeThrough_SavePSD:
 
             layer_info_list.append(entry)
 
+        # Save all runs data if available (for grouped PSD)
+        all_runs_layers = parts.get("all_runs_layers")
+        all_runs_info = []
+        if all_runs_layers:
+            for run_data in all_runs_layers:
+                run_idx = run_data["run"]
+                run_seed = run_data.get("seed", "?")
+                run_layer_dict = run_data["layer_dict"]
+                run_layers = []
+                for tag, img in run_layer_dict.items():
+                    if img is None:
+                        continue
+                    mask = img[..., -1] > 10
+                    if not np.any(mask):
+                        continue
+                    # Compute bounding box from alpha
+                    nz = cv2.findNonZero(mask.astype(np.uint8))
+                    if nz is not None:
+                        bx, by, bw, bh = cv2.boundingRect(nz)
+                        cropped = img[by:by+bh, bx:bx+bw]
+                        x1, y1, x2, y2 = bx, by, bx+bw, by+bh
+                    else:
+                        cropped = img
+                        x1, y1 = 0, 0
+                        x2, y2 = img.shape[1], img.shape[0]
+
+                    run_filename = f"{filename_prefix}_{ts}_{uid}_run{run_idx}_{tag}.png"
+                    Image.fromarray(cropped).save(os.path.join(output_dir, run_filename))
+                    run_layers.append({
+                        "name": tag, "filename": run_filename,
+                        "left": int(x1), "top": int(y1), "right": int(x2), "bottom": int(y2),
+                    })
+                all_runs_info.append({
+                    "run": run_idx, "seed": run_seed,
+                    "layer_count": len(run_layers), "layers": run_layers,
+                })
+            print(f"[SeeThrough] Saved {len(all_runs_info)} runs for grouped PSD", flush=True)
+
         info_filename = f"{filename_prefix}_{ts}_{uid}_layers.json"
         info_path = os.path.join(output_dir, info_filename)
+        info_data = {"prefix": filename_prefix, "timestamp": f"{ts}_{uid}",
+                     "layers": layer_info_list, "width": int(canvas_w), "height": int(canvas_h)}
+        if all_runs_info:
+            info_data["all_runs"] = all_runs_info
         with open(info_path, "w", encoding="utf-8") as f:
-            json.dump({"prefix": filename_prefix, "timestamp": f"{ts}_{uid}",
-                       "layers": layer_info_list, "width": int(canvas_w), "height": int(canvas_h)}, f, indent=2)
+            json.dump(info_data, f, indent=2)
 
         log_path = os.path.join(output_dir, "seethrough_psd_info.log")
         with open(log_path, "w") as f:
