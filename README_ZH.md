@@ -118,6 +118,25 @@ Post Process → Layer Rename（可選）→ Layer Filter（可選）→ Export 
 
 座標自動從圖片空間（Y 向下）轉換為 Spine 空間（Y 向上，原點在畫布底部中央）。繪製順序依照 Post Process 的深度排序。
 
+#### PSD 匯入 vs JSON 匯出 — 該用哪個？
+
+Spine Professional（3.6+）可以直接匯入 PSD 檔案，因此你可能會疑惑是否還需要 JSON 匯出。以下是比較：
+
+| | Save PSD → Spine PSD 匯入 | Export Spine（JSON + 圖片）|
+|---|---|---|
+| **Spine 版本** | 僅 Professional 3.6+ | **所有版本**（Essential + Professional）|
+| **圖層定位** | 自動 | 自動（座標已預轉換）|
+| **圖層命名** | 取決於 PSD 圖層名稱 | 可透過 LayerRename 控制 |
+| **圖層篩選** | 需先在 PSD 中隱藏/刪除 | 內建 LayerFilter 節點 |
+| **迭代更新** | 重新匯入 PSD 更新圖片 | 重新匯出更新 |
+| **骨架層級** | 不會自動建立 | 不會自動建立 |
+| **適合** | Spine Professional 用戶，快速開始 | Spine Essential 用戶，或需要自動化前處理的團隊 |
+
+**建議：**
+- **Spine Professional 用戶** → 使用 **Save PSD** 後透過 Spine 內建的 PSD 匯入功能。這是最簡單的工作流程。
+- **Spine Essential 用戶** → 使用 **Export Spine**，因為 Essential 版本不支援 PSD 匯入。
+- **自動化工作流程** → 使用 **Export Spine** 搭配 LayerRename + LayerFilter，取得一致且預處理過的輸出。
+
 <details>
 <summary>可用圖層標籤（經 LayerRename 後，共 38 個）</summary>
 

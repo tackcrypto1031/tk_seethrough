@@ -118,6 +118,25 @@ Outputs a folder with a configurable output path (defaults to ComfyUI output dir
 
 Coordinates are automatically converted from image space (Y-down) to Spine space (Y-up, origin at bottom-center). Draw order follows depth ordering from PostProcess.
 
+#### PSD Import vs JSON Export — Which Should I Use?
+
+Spine Professional (3.6+) can import PSD files directly, so you may wonder whether this JSON export is needed. Here's the comparison:
+
+| | Save PSD → Spine PSD Import | Export Spine (JSON + images) |
+|---|---|---|
+| **Spine version** | Professional 3.6+ only | **All versions** (Essential + Professional) |
+| **Layer positioning** | Automatic | Automatic (coords pre-converted) |
+| **Layer naming** | Depends on PSD layer names | Controllable via LayerRename |
+| **Layer filtering** | Must hide/delete in PSD first | Built-in LayerFilter node |
+| **Iteration** | Re-import PSD to update images | Re-export to update |
+| **Bone hierarchy** | Not auto-created | Not auto-created |
+| **Best for** | Spine Professional users who want a quick start | Spine Essential users, or teams wanting pre-filtered/renamed layers in an automated pipeline |
+
+**Recommendation:**
+- **Spine Professional users** → Use **Save PSD** and import via Spine's built-in PSD import. It's the simplest workflow.
+- **Spine Essential users** → Use **Export Spine**, as Essential does not support PSD import.
+- **Automated pipelines** → Use **Export Spine** with LayerRename + LayerFilter for consistent, pre-processed output.
+
 <details>
 <summary>Available layer tags (after LayerRename, 38 tags)</summary>
 
