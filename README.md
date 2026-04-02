@@ -15,6 +15,8 @@ A new node `SeeThrough_GenerateLayers_Custom` that adds one parameter compared t
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `enable_head_detail` | true | v3 models only: toggle the head detail inference stage on/off |
+| `num_runs` | 1 | Number of inference runs (1-5). If > 1, missing layers from run 1 are automatically filled from subsequent runs using different seeds |
+| `min_alpha_coverage` | 0.01 | Minimum alpha coverage ratio to consider a layer valid. Layers below this threshold are treated as missing |
 
 #### How It Works
 
@@ -26,6 +28,20 @@ The v3 See-through model runs in **two inference stages**:
 Each stage is a full diffusion pipeline call. By setting `enable_head_detail = false`, the entire head stage is **skipped** (no GPU computation), saving approximately **50% of the total inference time**.
 
 This is useful when you only need body-level decomposition and don't require fine-grained facial features.
+
+#### Multi-Run Auto-Fill
+
+The diffusion model is stochastic — each run may produce slightly different results. Sometimes a layer (e.g., face or hand) is missing or nearly empty in one run but present in another.
+
+Set `num_runs > 1` to automatically run inference multiple times and fill in missing layers:
+
+1. **Run 1** uses the original seed — this is the primary result
+2. After Run 1, any layer with alpha coverage below `min_alpha_coverage` is marked as missing
+3. **Run 2** uses `seed + 1`, **Run 3** uses `seed + 2`, etc.
+4. Missing layers that appear in a subsequent run are automatically filled into the primary result
+5. The process stops early if all layers are filled
+
+Models are loaded to GPU only once across all runs — the overhead is only the additional diffusion time, not model loading.
 
 > **Note:** For v2 models, this toggle has no effect since v2 uses a single-stage inference.
 

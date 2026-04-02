@@ -494,6 +494,10 @@ class SeeThrough_GenerateLayers_Custom:
                 "num_inference_steps": ("INT", {"default": 30, "min": 1, "max": 100}),
                 "enable_head_detail": ("BOOLEAN", {"default": True,
                     "tooltip": "v3 only: enable head detail stage (face, eyes, ears, etc). Disabling skips the 2nd inference pass and saves ~50% time."}),
+                "num_runs": ("INT", {"default": 1, "min": 1, "max": 5,
+                    "tooltip": "Number of inference runs. If > 1, missing layers from run 1 will be filled from subsequent runs using different seeds."}),
+                "min_alpha_coverage": ("FLOAT", {"default": 0.01, "min": 0.001, "max": 0.1, "step": 0.005,
+                    "tooltip": "Minimum alpha coverage ratio to consider a layer valid. Layers below this threshold are treated as missing."}),
             },
         }
 
@@ -502,56 +506,22 @@ class SeeThrough_GenerateLayers_Custom:
     FUNCTION = "generate"
     CATEGORY = "SeeThrough"
 
-    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, enable_head_detail=True):
-        pipeline = layerdiff_model
-        device = mm.get_torch_device()
-        offload = torch.device("cpu")
-        seed_everything(seed)
+    def _check_missing_layers(self, layer_dict, resolution, min_alpha_coverage):
+        """Return list of tags whose alpha coverage is below threshold."""
+        total_pixels = resolution * resolution
+        missing = []
+        for tag, img in layer_dict.items():
+            alpha_ratio = np.sum(img[..., -1] > 10) / total_pixels
+            if alpha_ratio < min_alpha_coverage:
+                missing.append(tag)
+        return missing
 
-        # Convert ComfyUI IMAGE to numpy RGBA
-        img_np = (image[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-        if img_np.shape[-1] == 3:
-            img_np = np.concatenate([img_np, np.full((*img_np.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
-        input_img = img_np.copy()
-
-        fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
-        scale = pad_size[0] / resolution
-
-        tag_version = pipeline.unet.get_tag_version()
-        layer_dict = {}
-
-        print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
-              f"steps={num_inference_steps}, head_detail={enable_head_detail}", flush=True)
-        _log_vram("GenerateLayers_Custom start")
-
-        # Encode text prompts on GPU, then offload text encoders
-        pipeline.text_encoder.to(device)
-        pipeline.text_encoder_2.to(device)
-        _log_vram("Text encoders loaded to GPU")
-
-        if tag_version == "v2":
-            prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
-        elif tag_version == "v3":
-            body_tags = VALID_BODY_PARTS_V3_BODY
-            head_tags = VALID_BODY_PARTS_V3_HEAD
-            body_embeds, body_pooled = pipeline.encode_cropped_prompt_77tokens(body_tags)
-            if enable_head_detail:
-                head_embeds, head_pooled = pipeline.encode_cropped_prompt_77tokens(head_tags)
-        else:
-            raise ValueError(f"Unknown tag version: {tag_version}")
-
-        pipeline.text_encoder.to(offload)
-        pipeline.text_encoder_2.to(offload)
-        _log_vram("Text encoders offloaded to CPU")
-
-        # Load UNet+VAE to GPU for diffusion
-        pipeline.unet.to(device)
-        pipeline.vae.to(device)
-        pipeline.trans_vae.to(device)
-        mm.soft_empty_cache()
-        _log_vram("UNet+VAE on GPU, ready for diffusion")
-
-        rng = torch.Generator(device=device).manual_seed(seed)
+    def _run_diffusion(self, pipeline, device, rng, tag_version, num_inference_steps,
+                       fullpage, prompt_embeds=None, pooled_prompt_embeds=None,
+                       body_embeds=None, body_pooled=None, head_embeds=None, head_pooled=None,
+                       enable_head_detail=True, input_img=None, scale=1.0, pad_pos=None, resolution=1280):
+        """Run a single diffusion pass and return the layer_dict."""
+        run_layer_dict = {}
 
         if tag_version == "v2":
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
@@ -560,21 +530,19 @@ class SeeThrough_GenerateLayers_Custom:
                            fullpage=fullpage)
             _log_vram("v2 diffusion complete")
             for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
-                layer_dict[tag] = rst
+                run_layer_dict[tag] = rst
 
         elif tag_version == "v3":
-            # Stage 1: Body (always runs)
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
                            generator=rng, guidance_scale=1.0,
                            prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
                            fullpage=fullpage, group_index=0)
             _log_vram("v3 body diffusion complete")
-            for rst, tag in zip(out.images, body_tags):
-                layer_dict[tag] = rst
+            for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_BODY):
+                run_layer_dict[tag] = rst
 
-            # Stage 2: Head detail (skipped if enable_head_detail is off)
-            if enable_head_detail and "head" in layer_dict:
-                head_img = layer_dict["head"]
+            if enable_head_detail and "head" in run_layer_dict:
+                head_img = run_layer_dict["head"]
                 nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
                 if nz is not None:
                     hx0, hy0, hw, hh = cv2.boundingRect(nz)
@@ -597,13 +565,125 @@ class SeeThrough_GenerateLayers_Custom:
                     py1, py2, px1, px2 = (coords / scale).astype(np.int64)
                     scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
 
-                    for rst, tag in zip(out.images, head_tags):
+                    for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_HEAD):
                         rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
                         full = canvas.copy()
                         full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
-                        layer_dict[tag] = full
+                        run_layer_dict[tag] = full
 
-        # Offload pipeline back to CPU
+        return run_layer_dict
+
+    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30,
+                 enable_head_detail=True, num_runs=1, min_alpha_coverage=0.01):
+        pipeline = layerdiff_model
+        device = mm.get_torch_device()
+        offload = torch.device("cpu")
+        seed_everything(seed)
+
+        # Convert ComfyUI IMAGE to numpy RGBA
+        img_np = (image[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+        if img_np.shape[-1] == 3:
+            img_np = np.concatenate([img_np, np.full((*img_np.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
+        input_img = img_np.copy()
+
+        fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
+        scale = pad_size[0] / resolution
+
+        tag_version = pipeline.unet.get_tag_version()
+        layer_dict = {}
+
+        print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
+              f"steps={num_inference_steps}, head_detail={enable_head_detail}, num_runs={num_runs}", flush=True)
+        _log_vram("GenerateLayers_Custom start")
+
+        # Encode text prompts on GPU, then offload text encoders (done once for all runs)
+        pipeline.text_encoder.to(device)
+        pipeline.text_encoder_2.to(device)
+        _log_vram("Text encoders loaded to GPU")
+
+        prompt_embeds, pooled_prompt_embeds = None, None
+        body_embeds, body_pooled = None, None
+        head_embeds, head_pooled = None, None
+
+        if tag_version == "v2":
+            prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
+        elif tag_version == "v3":
+            body_embeds, body_pooled = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V3_BODY)
+            if enable_head_detail:
+                head_embeds, head_pooled = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V3_HEAD)
+        else:
+            raise ValueError(f"Unknown tag version: {tag_version}")
+
+        pipeline.text_encoder.to(offload)
+        pipeline.text_encoder_2.to(offload)
+        _log_vram("Text encoders offloaded to CPU")
+
+        # Load UNet+VAE to GPU for diffusion (kept on GPU across all runs)
+        pipeline.unet.to(device)
+        pipeline.vae.to(device)
+        pipeline.trans_vae.to(device)
+        mm.soft_empty_cache()
+        _log_vram("UNet+VAE on GPU, ready for diffusion")
+
+        # --- Run 1: primary inference ---
+        rng = torch.Generator(device=device).manual_seed(seed)
+        layer_dict = self._run_diffusion(
+            pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+            prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+            body_embeds=body_embeds, body_pooled=body_pooled,
+            head_embeds=head_embeds, head_pooled=head_pooled,
+            enable_head_detail=enable_head_detail, input_img=input_img,
+            scale=scale, pad_pos=pad_pos, resolution=resolution)
+        _log_vram("Run 1 diffusion complete")
+        print(f"[SeeThrough] Run 1 complete: {len(layer_dict)} layers", flush=True)
+
+        # --- Runs 2..N: fill missing layers ---
+        if num_runs > 1:
+            missing_tags = self._check_missing_layers(layer_dict, resolution, min_alpha_coverage)
+            if missing_tags:
+                print(f"[SeeThrough] Run 1 missing layers ({len(missing_tags)}): {missing_tags}", flush=True)
+            else:
+                print(f"[SeeThrough] Run 1 all layers valid, skipping extra runs", flush=True)
+
+            for run_idx in range(2, num_runs + 1):
+                if not missing_tags:
+                    break
+
+                run_seed = seed + run_idx - 1
+                print(f"[SeeThrough] Run {run_idx}/{num_runs} (seed={run_seed}), trying to fill: {missing_tags}", flush=True)
+                seed_everything(run_seed)
+                rng = torch.Generator(device=device).manual_seed(run_seed)
+
+                run_layer_dict = self._run_diffusion(
+                    pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+                    prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+                    body_embeds=body_embeds, body_pooled=body_pooled,
+                    head_embeds=head_embeds, head_pooled=head_pooled,
+                    enable_head_detail=enable_head_detail, input_img=input_img,
+                    scale=scale, pad_pos=pad_pos, resolution=resolution)
+                _log_vram(f"Run {run_idx} diffusion complete")
+
+                total_pixels = resolution * resolution
+                still_missing = []
+                for tag in missing_tags:
+                    if tag in run_layer_dict:
+                        alpha_ratio = np.sum(run_layer_dict[tag][..., -1] > 10) / total_pixels
+                        if alpha_ratio >= min_alpha_coverage:
+                            layer_dict[tag] = run_layer_dict[tag]
+                            print(f"[SeeThrough] Run {run_idx}: filled '{tag}' (alpha={alpha_ratio:.4f})", flush=True)
+                        else:
+                            still_missing.append(tag)
+                    else:
+                        still_missing.append(tag)
+                missing_tags = still_missing
+
+                if not missing_tags:
+                    print(f"[SeeThrough] All missing layers filled after run {run_idx}", flush=True)
+
+            if missing_tags:
+                print(f"[SeeThrough] WARNING: after {num_runs} runs, still missing: {missing_tags}", flush=True)
+
+        # Offload pipeline back to CPU (once, after all runs)
         pipeline.unet.to(offload)
         pipeline.vae.to(offload)
         pipeline.trans_vae.to(offload)
