@@ -29,6 +29,16 @@ This is useful when you only need body-level decomposition and don't require fin
 
 > **Note:** For v2 models, this toggle has no effect since v2 uses a single-stage inference.
 
+### v0.2.2 — Synced with Upstream
+
+This fork has been synced with [upstream v0.2.2](https://github.com/jtydhr88/ComfyUI-See-through), incorporating the following improvements:
+
+- **VRAM Offloading** — Models now stay on CPU and are moved to GPU only during inference, then offloaded back. This significantly reduces VRAM usage, making it possible to run on GPUs with 8GB or less.
+- **Text Encoder Offloading** — Text encoders are loaded to GPU for prompt encoding, then offloaded before loading UNet+VAE, so they never compete for VRAM at the same time.
+- **Marigold Compatibility Fix** — Fixed `resize` call for torchvision >= 0.23 which introduced stricter `InterpolationMode` checks.
+- **Web Fixes** — Subpath deployment support; ag-psd bundle 404 fix on case-sensitive filesystems.
+- **Custom Node Optimization** — When `enable_head_detail = false`, head text encoding is also skipped (not just diffusion), further reducing GPU memory usage.
+
 ## All Nodes
 
 | Node | Description |

@@ -29,6 +29,16 @@ v3 See-through 模型分**兩個推理階段**執行：
 
 > **注意：** v2 模型為單階段推理，此開關無效果。
 
+### v0.2.2 — 同步上游更新
+
+本 Fork 已同步 [上游 v0.2.2](https://github.com/jtydhr88/ComfyUI-See-through) 的改進：
+
+- **VRAM 卸載** — 模型載入後留在 CPU，推理時才搬到 GPU，推理完立刻搬回 CPU。大幅降低顯存佔用，讓 8GB 以下的顯卡也能順利運行。
+- **Text Encoder 卸載** — Text Encoder 在 GPU 上完成 prompt encoding 後立刻卸載，再載入 UNet+VAE 進行擴散，兩者不會同時佔用顯存。
+- **Marigold 相容性修復** — 修復 torchvision >= 0.23 的 `InterpolationMode` 嚴格檢查導致的 resize 錯誤。
+- **Web 修復** — 支援子路徑部署；修復大小寫敏感檔案系統上 ag-psd bundle 404 問題。
+- **自訂節點優化** — 當 `enable_head_detail = false` 時，連 head 的 text encoding 也一併跳過（不只跳過擴散），進一步降低 GPU 記憶體使用。
+
 ## 所有節點
 
 | 節點 | 說明 |
