@@ -11,7 +11,7 @@ import numpy as np
 
 import folder_paths
 import comfy.model_management as mm
-import comfy.utils
+import traceback
 
 
 def _log_vram(label):
@@ -684,17 +684,17 @@ class SeeThrough_GenerateLayers_Custom:
         # Compute similarity scores for Run 1
         total_pixels = resolution * resolution
         similarity_scores = {}
-        missing_tags = []
+        missing_tags = set()
         for tag in expected_tags:
             if tag in layer_dict:
                 alpha_ratio = np.sum(layer_dict[tag][..., -1] > 10) / total_pixels
                 if alpha_ratio >= min_alpha_coverage:
                     similarity_scores[tag] = self._layer_similarity(layer_dict[tag], fullpage)
                 else:
-                    missing_tags.append(tag)
+                    missing_tags.add(tag)
                     similarity_scores[tag] = 0.0
             else:
-                missing_tags.append(tag)
+                missing_tags.add(tag)
                 similarity_scores[tag] = 0.0
 
         valid_count = expected_count - len(missing_tags)
@@ -710,7 +710,7 @@ class SeeThrough_GenerateLayers_Custom:
             )
 
             if not needs_improvement:
-                print(f"[SeeThrough] Run 1 all layers valid with good similarity, skipping extra runs", flush=True)
+                print("[SeeThrough] Run 1 all layers valid with good similarity, skipping extra runs", flush=True)
             else:
                 if missing_tags:
                     print(f"[SeeThrough] Auto-fill: {len(missing_tags)} missing layers: {missing_tags}", flush=True)
@@ -721,7 +721,7 @@ class SeeThrough_GenerateLayers_Custom:
 
                 for run_idx in range(2, max_runs + 1):
                     if not missing_tags and not any(s < 0.85 for s in similarity_scores.values()):
-                        print(f"[SeeThrough] All layers filled with good similarity, stopping", flush=True)
+                        print("[SeeThrough] All layers filled with good similarity, stopping", flush=True)
                         break
 
                     run_seed = seed + run_idx - 1
@@ -757,7 +757,7 @@ class SeeThrough_GenerateLayers_Custom:
                             # Fill missing layer
                             layer_dict[tag] = new_img
                             similarity_scores[tag] = new_sim
-                            missing_tags.remove(tag)
+                            missing_tags.discard(tag)
                             upgrades += 1
                             print(f"[SeeThrough] Run {run_idx}: filled '{tag}' (sim={new_sim:.4f})", flush=True)
                         elif new_sim > old_sim:
@@ -991,6 +991,7 @@ class SeeThrough_PostProcess:
                     tag2pinfo["hairf"] = parts[0]
                     tag2pinfo["hairb"] = parts[1]
                 except Exception as e:
+                    traceback.print_exc()
                     print(f"[SeeThrough] Hair clustering failed: {e}, keeping as-is", flush=True)
                     tag2pinfo["hair"] = part_info
 
@@ -1221,7 +1222,8 @@ class SeeThrough_LayerRename:
             new_tag2pinfo[new_name] = pinfo_copy
 
         print(f"[SeeThrough] LayerRename: {len(new_tag2pinfo)} layers renamed", flush=True)
-        return ({"tag2pinfo": new_tag2pinfo, "frame_size": frame_size},)
+        return ({"tag2pinfo": new_tag2pinfo, "frame_size": frame_size,
+                 "all_runs_layers": parts.get("all_runs_layers")},)
 
 
 class SeeThrough_LayerFilter:
