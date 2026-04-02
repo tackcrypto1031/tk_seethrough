@@ -494,10 +494,10 @@ class SeeThrough_GenerateLayers_Custom:
                 "num_inference_steps": ("INT", {"default": 30, "min": 1, "max": 100}),
                 "enable_head_detail": ("BOOLEAN", {"default": True,
                     "tooltip": "v3 only: enable head detail stage (face, eyes, ears, etc). Disabling skips the 2nd inference pass and saves ~50% time."}),
-                "num_runs": ("INT", {"default": 1, "min": 1, "max": 5,
-                    "tooltip": "Number of inference runs. If > 1, missing layers from run 1 will be filled from subsequent runs using different seeds."}),
+                "auto_fill": ("BOOLEAN", {"default": False,
+                    "tooltip": "Auto-fill missing layers: if enabled, automatically re-runs inference (up to 5 times) until all expected layers are generated. Expected: v3+head=24, v3 body=13, v2=19."}),
                 "min_alpha_coverage": ("FLOAT", {"default": 0.01, "min": 0.001, "max": 0.1, "step": 0.005,
-                    "tooltip": "Minimum alpha coverage ratio to consider a layer valid. Layers below this threshold are treated as missing."}),
+                    "tooltip": "Minimum alpha coverage ratio to consider a layer valid. Layers below this threshold are treated as missing. Only used when auto_fill is enabled."}),
             },
         }
 
@@ -574,7 +574,7 @@ class SeeThrough_GenerateLayers_Custom:
         return run_layer_dict
 
     def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30,
-                 enable_head_detail=True, num_runs=1, min_alpha_coverage=0.01):
+                 enable_head_detail=True, auto_fill=False, min_alpha_coverage=0.01):
         pipeline = layerdiff_model
         device = mm.get_torch_device()
         offload = torch.device("cpu")
@@ -592,8 +592,20 @@ class SeeThrough_GenerateLayers_Custom:
         tag_version = pipeline.unet.get_tag_version()
         layer_dict = {}
 
+        # Determine expected layer count based on model version and settings
+        if tag_version == "v2":
+            expected_tags = set(VALID_BODY_PARTS_V2)
+        elif tag_version == "v3":
+            expected_tags = set(VALID_BODY_PARTS_V3_BODY)
+            if enable_head_detail:
+                expected_tags |= set(VALID_BODY_PARTS_V3_HEAD)
+        else:
+            expected_tags = set()
+        expected_count = len(expected_tags)
+
         print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
-              f"steps={num_inference_steps}, head_detail={enable_head_detail}, num_runs={num_runs}", flush=True)
+              f"steps={num_inference_steps}, head_detail={enable_head_detail}, "
+              f"auto_fill={auto_fill}, expected_layers={expected_count}", flush=True)
         _log_vram("GenerateLayers_Custom start")
 
         # Encode text prompts on GPU, then offload text encoders (done once for all runs)
@@ -625,6 +637,8 @@ class SeeThrough_GenerateLayers_Custom:
         mm.soft_empty_cache()
         _log_vram("UNet+VAE on GPU, ready for diffusion")
 
+        max_runs = 5 if auto_fill else 1
+
         # --- Run 1: primary inference ---
         rng = torch.Generator(device=device).manual_seed(seed)
         layer_dict = self._run_diffusion(
@@ -635,22 +649,23 @@ class SeeThrough_GenerateLayers_Custom:
             enable_head_detail=enable_head_detail, input_img=input_img,
             scale=scale, pad_pos=pad_pos, resolution=resolution)
         _log_vram("Run 1 diffusion complete")
-        print(f"[SeeThrough] Run 1 complete: {len(layer_dict)} layers", flush=True)
 
-        # --- Runs 2..N: fill missing layers ---
-        if num_runs > 1:
-            missing_tags = self._check_missing_layers(layer_dict, resolution, min_alpha_coverage)
-            if missing_tags:
-                print(f"[SeeThrough] Run 1 missing layers ({len(missing_tags)}): {missing_tags}", flush=True)
-            else:
-                print(f"[SeeThrough] Run 1 all layers valid, skipping extra runs", flush=True)
+        # Count valid layers
+        valid_tags = set(layer_dict.keys()) - set(self._check_missing_layers(layer_dict, resolution, min_alpha_coverage))
+        print(f"[SeeThrough] Run 1 complete: {len(valid_tags)}/{expected_count} valid layers", flush=True)
 
-            for run_idx in range(2, num_runs + 1):
+        # --- Auto-fill: runs 2..5 if layers are missing ---
+        if auto_fill and len(valid_tags) < expected_count:
+            missing_tags = list(expected_tags - valid_tags)
+            print(f"[SeeThrough] Auto-fill enabled, missing layers ({len(missing_tags)}): {missing_tags}", flush=True)
+
+            for run_idx in range(2, max_runs + 1):
                 if not missing_tags:
                     break
 
                 run_seed = seed + run_idx - 1
-                print(f"[SeeThrough] Run {run_idx}/{num_runs} (seed={run_seed}), trying to fill: {missing_tags}", flush=True)
+                print(f"[SeeThrough] Auto-fill run {run_idx}/{max_runs} (seed={run_seed}), "
+                      f"trying to fill {len(missing_tags)} layers: {missing_tags}", flush=True)
                 seed_everything(run_seed)
                 rng = torch.Generator(device=device).manual_seed(run_seed)
 
@@ -677,11 +692,14 @@ class SeeThrough_GenerateLayers_Custom:
                         still_missing.append(tag)
                 missing_tags = still_missing
 
+                valid_count = expected_count - len(missing_tags)
+                print(f"[SeeThrough] After run {run_idx}: {valid_count}/{expected_count} valid layers", flush=True)
+
                 if not missing_tags:
-                    print(f"[SeeThrough] All missing layers filled after run {run_idx}", flush=True)
+                    print(f"[SeeThrough] All {expected_count} layers filled after run {run_idx}", flush=True)
 
             if missing_tags:
-                print(f"[SeeThrough] WARNING: after {num_runs} runs, still missing: {missing_tags}", flush=True)
+                print(f"[SeeThrough] WARNING: after {max_runs} runs, still missing ({len(missing_tags)}): {missing_tags}", flush=True)
 
         # Offload pipeline back to CPU (once, after all runs)
         pipeline.unet.to(offload)
