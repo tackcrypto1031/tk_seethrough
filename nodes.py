@@ -933,6 +933,79 @@ class SeeThrough_SavePSD:
         return (info_path,)
 
 
+# Default tag-to-Spine name mapping
+DEFAULT_SPINE_NAMES = {
+    "front hair": "front-hair", "back hair": "back-hair",
+    "hairf": "front-hair", "hairb": "back-hair", "hair": "hair",
+    "head": "head", "headwear": "headwear",
+    "face": "face", "irides": "irides", "eyebrow": "eyebrow",
+    "eyewhite": "eye-white", "eyelash": "eyelash", "eyewear": "eyewear",
+    "eyes": "eyes", "eyel": "eye-left", "eyer": "eye-right",
+    "browl": "eyebrow-left", "browr": "eyebrow-right",
+    "eyewhitel": "eye-white-left", "eyewhiter": "eye-white-right",
+    "iridesl": "irides-left", "iridesr": "irides-right",
+    "eyelashl": "eyelash-left", "eyelashr": "eyelash-right",
+    "eyebrowl": "eyebrow-left", "eyebrowr": "eyebrow-right",
+    "ears": "ears", "earl": "ear-left", "earr": "ear-right",
+    "earwear": "earwear",
+    "nose": "nose", "mouth": "mouth",
+    "neck": "neck", "neckwear": "neckwear",
+    "topwear": "topwear", "bottomwear": "bottomwear",
+    "handwear": "handwear", "handwearl": "handwear-left", "handwearr": "handwear-right",
+    "legwear": "legwear", "footwear": "footwear",
+    "tail": "tail", "wings": "wings", "objects": "objects",
+}
+
+
+class SeeThrough_LayerRename:
+    """Rename layer tags to Spine-friendly names. Uses built-in defaults
+    or a user-supplied JSON mapping (one key per line: "old_tag": "new_name")."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "parts": ("SEETHROUGH_PARTS",),
+            },
+            "optional": {
+                "custom_mapping_json": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "JSON object to override default names, e.g. {\"hairf\": \"bangs\", \"topwear\": \"shirt\"}. Leave empty to use defaults.",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("SEETHROUGH_PARTS",)
+    RETURN_NAMES = ("parts",)
+    FUNCTION = "rename"
+    CATEGORY = "SeeThrough"
+
+    def rename(self, parts, custom_mapping_json=""):
+        import json as _json
+        tag2pinfo = parts["tag2pinfo"]
+        frame_size = parts["frame_size"]
+
+        mapping = dict(DEFAULT_SPINE_NAMES)
+        if custom_mapping_json.strip():
+            try:
+                user_map = _json.loads(custom_mapping_json.strip())
+                mapping.update(user_map)
+            except Exception as e:
+                print(f"[SeeThrough] LayerRename: invalid JSON, using defaults. Error: {e}", flush=True)
+
+        new_tag2pinfo = {}
+        for tag, pinfo in tag2pinfo.items():
+            new_name = mapping.get(tag, tag)
+            pinfo_copy = dict(pinfo)
+            pinfo_copy["tag"] = new_name
+            pinfo_copy["original_tag"] = tag
+            new_tag2pinfo[new_name] = pinfo_copy
+
+        print(f"[SeeThrough] LayerRename: {len(new_tag2pinfo)} layers renamed", flush=True)
+        return ({"tag2pinfo": new_tag2pinfo, "frame_size": frame_size},)
+
+
 NODE_CLASS_MAPPINGS = {
     "SeeThrough_LoadLayerDiffModel": SeeThrough_LoadLayerDiffModel,
     "SeeThrough_LoadDepthModel": SeeThrough_LoadDepthModel,
@@ -941,6 +1014,7 @@ NODE_CLASS_MAPPINGS = {
     "SeeThrough_GenerateDepth": SeeThrough_GenerateDepth,
     "SeeThrough_PostProcess": SeeThrough_PostProcess,
     "SeeThrough_SavePSD": SeeThrough_SavePSD,
+    "SeeThrough_LayerRename": SeeThrough_LayerRename,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -951,4 +1025,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SeeThrough_GenerateDepth": "SeeThrough Generate Depth",
     "SeeThrough_PostProcess": "SeeThrough Post Process",
     "SeeThrough_SavePSD": "SeeThrough Save PSD",
+    "SeeThrough_LayerRename": "SeeThrough Layer Rename",
 }
