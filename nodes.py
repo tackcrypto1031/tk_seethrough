@@ -1048,6 +1048,128 @@ class SeeThrough_LayerFilter:
         return ({"tag2pinfo": filtered, "frame_size": frame_size},)
 
 
+class SeeThrough_ExportSpine:
+    """Export layers as a Spine 2D skeleton project (JSON + images/).
+    Output can be opened directly in the Spine editor."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "parts": ("SEETHROUGH_PARTS",),
+                "filename_prefix": ("STRING", {"default": "seethrough_spine"}),
+                "spine_version": ("STRING", {"default": "4.2.28",
+                                              "tooltip": "Spine editor version string for the skeleton JSON."}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("spine_json_path",)
+    FUNCTION = "export"
+    CATEGORY = "SeeThrough"
+    OUTPUT_NODE = True
+
+    def export(self, parts, filename_prefix="seethrough_spine", spine_version="4.2.28"):
+        from PIL import Image
+        import json as _json
+
+        tag2pinfo = parts["tag2pinfo"]
+        frame_size = parts["frame_size"]
+        canvas_h, canvas_w = frame_size
+
+        output_dir = folder_paths.get_output_directory()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        uid = str(uuid.uuid4())[:8]
+
+        project_dir = os.path.join(output_dir, f"{filename_prefix}_{ts}_{uid}")
+        images_dir = os.path.join(project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+
+        # Sort by depth_median descending (back-to-front for Spine slots array)
+        sorted_tags = sorted(
+            tag2pinfo.keys(),
+            key=lambda t: tag2pinfo[t].get("depth_median", 1),
+            reverse=True,
+        )
+
+        slots = []
+        attachments = {}
+
+        for tag in sorted_tags:
+            pinfo = tag2pinfo[tag]
+            img = pinfo.get("img")
+            if img is None:
+                continue
+
+            # Save cropped PNG
+            safe_name = tag.replace(" ", "-")
+            png_filename = f"{safe_name}.png"
+            Image.fromarray(img).save(os.path.join(images_dir, png_filename))
+
+            # Bounding box on original canvas (after _compute_depth_median cropping)
+            xyxy = pinfo.get("xyxy", [0, 0, img.shape[1], img.shape[0]])
+            x1, y1, x2, y2 = [int(v) for v in xyxy]
+            img_w = img.shape[1]
+            img_h = img.shape[0]
+
+            # Center of this layer on the original canvas (Y-down coords)
+            center_x_canvas = (x1 + x2) / 2.0
+            center_y_canvas = (y1 + y2) / 2.0
+
+            # Convert to Spine coords: origin = bottom-center of canvas, Y-up
+            spine_x = center_x_canvas - canvas_w / 2.0
+            spine_y = canvas_h - center_y_canvas
+
+            # Slot (draw order = array index, already sorted back-to-front)
+            slots.append({
+                "name": safe_name,
+                "bone": "root",
+                "attachment": safe_name,
+            })
+
+            # Skin attachment
+            attachments[safe_name] = {
+                safe_name: {
+                    "x": round(spine_x, 2),
+                    "y": round(spine_y, 2),
+                    "width": img_w,
+                    "height": img_h,
+                }
+            }
+
+        # Build Spine skeleton JSON
+        skeleton_data = {
+            "skeleton": {
+                "hash": "",
+                "spine": spine_version,
+                "x": round(-canvas_w / 2.0, 2),
+                "y": 0,
+                "width": canvas_w,
+                "height": canvas_h,
+                "images": "./images/",
+                "audio": "",
+            },
+            "bones": [{"name": "root"}],
+            "slots": slots,
+            "skins": [
+                {
+                    "name": "default",
+                    "attachments": attachments,
+                }
+            ],
+            "animations": {
+                "setup": {}
+            },
+        }
+
+        json_path = os.path.join(project_dir, f"{filename_prefix}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            _json.dump(skeleton_data, f, indent=2, ensure_ascii=False)
+
+        print(f"[SeeThrough] ExportSpine: {len(slots)} slots → {json_path}", flush=True)
+        return (json_path,)
+
+
 NODE_CLASS_MAPPINGS = {
     "SeeThrough_LoadLayerDiffModel": SeeThrough_LoadLayerDiffModel,
     "SeeThrough_LoadDepthModel": SeeThrough_LoadDepthModel,
@@ -1058,6 +1180,7 @@ NODE_CLASS_MAPPINGS = {
     "SeeThrough_SavePSD": SeeThrough_SavePSD,
     "SeeThrough_LayerRename": SeeThrough_LayerRename,
     "SeeThrough_LayerFilter": SeeThrough_LayerFilter,
+    "SeeThrough_ExportSpine": SeeThrough_ExportSpine,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1070,4 +1193,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SeeThrough_SavePSD": "SeeThrough Save PSD",
     "SeeThrough_LayerRename": "SeeThrough Layer Rename",
     "SeeThrough_LayerFilter": "SeeThrough Layer Filter",
+    "SeeThrough_ExportSpine": "SeeThrough Export Spine",
 }
