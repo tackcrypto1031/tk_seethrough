@@ -33,13 +33,16 @@ This is useful when you only need body-level decomposition and don't require fin
 
 The diffusion model is stochastic — each run may produce slightly different results. Sometimes a layer (e.g., face or hand) is missing or nearly empty in one run but present in another.
 
-Enable `auto_fill` to automatically re-run inference until all expected layers are generated:
+Enable `auto_fill` to automatically re-run inference until all expected layers are generated with good quality:
 
 1. **Run 1** uses the original seed — this is the primary result
-2. The node checks if all expected layers are present (v3+head: 24 layers, v3 body only: 13 layers, v2: 19 layers)
-3. If any layers are missing (alpha coverage below `min_alpha_coverage`), **Run 2** starts with `seed + 1`
-4. Missing layers that appear in a subsequent run are automatically filled into the primary result
-5. The process repeats up to **5 runs** or until all layers are filled
+2. Each layer is compared against the original image to compute a **similarity score** (0~1)
+3. Layers that are **missing** (alpha coverage below threshold) or have **low similarity** (< 0.85) trigger additional runs
+4. **Run 2** uses `seed + 1`, **Run 3** uses `seed + 2`, etc.
+5. For each layer, the version with the **highest similarity to the original** is kept
+6. The process repeats up to **5 runs** or until all layers have good similarity
+
+This means even if Run 1 generates a face layer, if Run 2 produces a face that better matches the original image, Run 2's version will be used automatically.
 
 Models are loaded to GPU only once across all runs — the overhead is only the additional diffusion time, not model loading.
 

@@ -516,6 +516,30 @@ class SeeThrough_GenerateLayers_Custom:
                 missing.append(tag)
         return missing
 
+    @staticmethod
+    def _layer_similarity(layer_img, original_img):
+        """Compute similarity between a generated layer and the original image.
+        Returns a score in [0, 1] where 1 = perfect match.
+        Compares RGB values only in regions where the layer has alpha > 10."""
+        mask = layer_img[..., -1] > 10
+        if not np.any(mask):
+            return 0.0
+
+        # Ensure shapes match by using minimum dimensions
+        h = min(layer_img.shape[0], original_img.shape[0])
+        w = min(layer_img.shape[1], original_img.shape[1])
+        mask = mask[:h, :w]
+
+        layer_rgb = layer_img[:h, :w, :3][mask].astype(np.float32)
+        orig_rgb = original_img[:h, :w, :3][mask].astype(np.float32)
+
+        if layer_rgb.size == 0:
+            return 0.0
+
+        # Mean Absolute Error, normalized to [0, 1] similarity
+        mae = np.mean(np.abs(layer_rgb - orig_rgb)) / 255.0
+        return float(1.0 - mae)
+
     def _run_diffusion(self, pipeline, device, rng, tag_version, num_inference_steps,
                        fullpage, prompt_embeds=None, pooled_prompt_embeds=None,
                        body_embeds=None, body_pooled=None, head_embeds=None, head_pooled=None,
@@ -650,56 +674,97 @@ class SeeThrough_GenerateLayers_Custom:
             scale=scale, pad_pos=pad_pos, resolution=resolution)
         _log_vram("Run 1 diffusion complete")
 
-        # Count valid layers
-        valid_tags = set(layer_dict.keys()) - set(self._check_missing_layers(layer_dict, resolution, min_alpha_coverage))
-        print(f"[SeeThrough] Run 1 complete: {len(valid_tags)}/{expected_count} valid layers", flush=True)
+        # Compute similarity scores for Run 1
+        total_pixels = resolution * resolution
+        similarity_scores = {}
+        missing_tags = []
+        for tag in expected_tags:
+            if tag in layer_dict:
+                alpha_ratio = np.sum(layer_dict[tag][..., -1] > 10) / total_pixels
+                if alpha_ratio >= min_alpha_coverage:
+                    similarity_scores[tag] = self._layer_similarity(layer_dict[tag], fullpage)
+                else:
+                    missing_tags.append(tag)
+                    similarity_scores[tag] = 0.0
+            else:
+                missing_tags.append(tag)
+                similarity_scores[tag] = 0.0
 
-        # --- Auto-fill: runs 2..5 if layers are missing ---
-        if auto_fill and len(valid_tags) < expected_count:
-            missing_tags = list(expected_tags - valid_tags)
-            print(f"[SeeThrough] Auto-fill enabled, missing layers ({len(missing_tags)}): {missing_tags}", flush=True)
+        valid_count = expected_count - len(missing_tags)
+        print(f"[SeeThrough] Run 1 complete: {valid_count}/{expected_count} valid layers", flush=True)
+        for tag in sorted(similarity_scores.keys()):
+            status = "MISSING" if tag in missing_tags else f"sim={similarity_scores[tag]:.4f}"
+            print(f"  - {tag}: {status}", flush=True)
 
-            for run_idx in range(2, max_runs + 1):
-                if not missing_tags:
-                    break
+        # --- Auto-fill: runs 2..5 — fill missing layers AND upgrade low-similarity layers ---
+        if auto_fill:
+            needs_improvement = len(missing_tags) > 0 or any(
+                s < 0.85 for tag, s in similarity_scores.items() if tag not in missing_tags
+            )
 
-                run_seed = seed + run_idx - 1
-                print(f"[SeeThrough] Auto-fill run {run_idx}/{max_runs} (seed={run_seed}), "
-                      f"trying to fill {len(missing_tags)} layers: {missing_tags}", flush=True)
-                seed_everything(run_seed)
-                rng = torch.Generator(device=device).manual_seed(run_seed)
+            if not needs_improvement:
+                print(f"[SeeThrough] Run 1 all layers valid with good similarity, skipping extra runs", flush=True)
+            else:
+                if missing_tags:
+                    print(f"[SeeThrough] Auto-fill: {len(missing_tags)} missing layers: {missing_tags}", flush=True)
+                low_sim = {t: s for t, s in similarity_scores.items() if s < 0.85 and t not in missing_tags}
+                if low_sim:
+                    print(f"[SeeThrough] Auto-fill: {len(low_sim)} low-similarity layers: "
+                          f"{[(t, f'{s:.4f}') for t, s in low_sim.items()]}", flush=True)
 
-                run_layer_dict = self._run_diffusion(
-                    pipeline, device, rng, tag_version, num_inference_steps, fullpage,
-                    prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
-                    body_embeds=body_embeds, body_pooled=body_pooled,
-                    head_embeds=head_embeds, head_pooled=head_pooled,
-                    enable_head_detail=enable_head_detail, input_img=input_img,
-                    scale=scale, pad_pos=pad_pos, resolution=resolution)
-                _log_vram(f"Run {run_idx} diffusion complete")
+                for run_idx in range(2, max_runs + 1):
+                    if not missing_tags and not any(s < 0.85 for s in similarity_scores.values()):
+                        print(f"[SeeThrough] All layers filled with good similarity, stopping", flush=True)
+                        break
 
-                total_pixels = resolution * resolution
-                still_missing = []
-                for tag in missing_tags:
-                    if tag in run_layer_dict:
-                        alpha_ratio = np.sum(run_layer_dict[tag][..., -1] > 10) / total_pixels
-                        if alpha_ratio >= min_alpha_coverage:
-                            layer_dict[tag] = run_layer_dict[tag]
-                            print(f"[SeeThrough] Run {run_idx}: filled '{tag}' (alpha={alpha_ratio:.4f})", flush=True)
-                        else:
-                            still_missing.append(tag)
-                    else:
-                        still_missing.append(tag)
-                missing_tags = still_missing
+                    run_seed = seed + run_idx - 1
+                    print(f"[SeeThrough] Auto-fill run {run_idx}/{max_runs} (seed={run_seed})", flush=True)
+                    seed_everything(run_seed)
+                    rng = torch.Generator(device=device).manual_seed(run_seed)
 
-                valid_count = expected_count - len(missing_tags)
-                print(f"[SeeThrough] After run {run_idx}: {valid_count}/{expected_count} valid layers", flush=True)
+                    run_layer_dict = self._run_diffusion(
+                        pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+                        prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+                        body_embeds=body_embeds, body_pooled=body_pooled,
+                        head_embeds=head_embeds, head_pooled=head_pooled,
+                        enable_head_detail=enable_head_detail, input_img=input_img,
+                        scale=scale, pad_pos=pad_pos, resolution=resolution)
+                    _log_vram(f"Run {run_idx} diffusion complete")
 
-                if not missing_tags:
-                    print(f"[SeeThrough] All {expected_count} layers filled after run {run_idx}", flush=True)
+                    upgrades = 0
+                    for tag in expected_tags:
+                        if tag not in run_layer_dict:
+                            continue
+                        new_img = run_layer_dict[tag]
+                        new_alpha = np.sum(new_img[..., -1] > 10) / total_pixels
+                        if new_alpha < min_alpha_coverage:
+                            continue
 
-            if missing_tags:
-                print(f"[SeeThrough] WARNING: after {max_runs} runs, still missing ({len(missing_tags)}): {missing_tags}", flush=True)
+                        new_sim = self._layer_similarity(new_img, fullpage)
+                        old_sim = similarity_scores.get(tag, 0.0)
+
+                        if tag in missing_tags:
+                            # Fill missing layer
+                            layer_dict[tag] = new_img
+                            similarity_scores[tag] = new_sim
+                            missing_tags.remove(tag)
+                            upgrades += 1
+                            print(f"[SeeThrough] Run {run_idx}: filled '{tag}' (sim={new_sim:.4f})", flush=True)
+                        elif new_sim > old_sim:
+                            # Upgrade to higher similarity version
+                            layer_dict[tag] = new_img
+                            similarity_scores[tag] = new_sim
+                            upgrades += 1
+                            print(f"[SeeThrough] Run {run_idx}: upgraded '{tag}' "
+                                  f"(sim {old_sim:.4f} → {new_sim:.4f})", flush=True)
+
+                    valid_count = expected_count - len(missing_tags)
+                    print(f"[SeeThrough] After run {run_idx}: {valid_count}/{expected_count} valid, "
+                          f"{upgrades} layers improved", flush=True)
+
+                if missing_tags:
+                    print(f"[SeeThrough] WARNING: after {max_runs} runs, still missing ({len(missing_tags)}): "
+                          f"{missing_tags}", flush=True)
 
         # Offload pipeline back to CPU (once, after all runs)
         pipeline.unet.to(offload)
