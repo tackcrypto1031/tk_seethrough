@@ -1018,9 +1018,23 @@ class SeeThrough_LayerFilter:
                 "mode": (["include", "exclude"], {"default": "exclude",
                           "tooltip": "include = keep only listed tags; exclude = remove listed tags"}),
                 "tags": ("STRING", {
-                    "default": "",
+                    "default": "\n".join([
+                        "front-hair", "back-hair", "head", "headwear",
+                        "face", "irides", "irides-left", "irides-right",
+                        "eyebrow", "eyebrow-left", "eyebrow-right",
+                        "eye-white", "eye-white-left", "eye-white-right",
+                        "eyelash", "eyelash-left", "eyelash-right",
+                        "eye-left", "eye-right", "eyewear",
+                        "ears", "ear-left", "ear-right", "earwear",
+                        "nose", "mouth",
+                        "neck", "neckwear",
+                        "topwear", "bottomwear",
+                        "handwear", "handwear-left", "handwear-right",
+                        "legwear", "footwear",
+                        "tail", "wings", "objects",
+                    ]),
                     "multiline": True,
-                    "tooltip": "One tag per line. Use the tag names visible in the layer list (after rename if LayerRename is connected).",
+                    "tooltip": "One tag per line. All available tags are pre-filled — delete the ones you want to exclude (exclude mode) or keep only the ones you need (include mode). Names shown are post-rename defaults; if not using LayerRename, use original tags (e.g. hairf, eyel).",
                 }),
             },
         }
@@ -1061,6 +1075,12 @@ class SeeThrough_ExportSpine:
                 "spine_version": ("STRING", {"default": "4.2.28",
                                               "tooltip": "Spine editor version string for the skeleton JSON."}),
             },
+            "optional": {
+                "output_path": ("STRING", {
+                    "default": "",
+                    "tooltip": "Custom output directory path. Leave empty to use ComfyUI default output folder.",
+                }),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -1069,7 +1089,7 @@ class SeeThrough_ExportSpine:
     CATEGORY = "SeeThrough"
     OUTPUT_NODE = True
 
-    def export(self, parts, filename_prefix="seethrough_spine", spine_version="4.2.28"):
+    def export(self, parts, filename_prefix="seethrough_spine", spine_version="4.2.28", output_path=""):
         from PIL import Image
         import json as _json
 
@@ -1077,7 +1097,11 @@ class SeeThrough_ExportSpine:
         frame_size = parts["frame_size"]
         canvas_h, canvas_w = frame_size
 
-        output_dir = folder_paths.get_output_directory()
+        if output_path.strip():
+            output_dir = output_path.strip()
+            os.makedirs(output_dir, exist_ok=True)
+        else:
+            output_dir = folder_paths.get_output_directory()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         uid = str(uuid.uuid4())[:8]
 

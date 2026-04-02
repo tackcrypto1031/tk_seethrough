@@ -63,12 +63,31 @@ Post Process → Layer Rename（可選）→ Layer Filter（可選）→ Export 
 ```
 
 - **Layer Rename** 將內部標籤（如 `hairf`、`eyel`）映射為 Spine 友善名稱（如 `front-hair`、`eye-left`）。內建預設涵蓋所有標籤；可透過 `custom_mapping_json` 輸入 JSON 物件覆蓋。
-- **Layer Filter** 移除不需要的圖層（如 `wings`、`tail`），支援 include 或 exclude 模式。每行輸入一個標籤名。
-- **Export Spine** 輸出一個資料夾，包含：
+- **Layer Filter** 移除不需要的圖層，支援 include 或 exclude 模式。預設已填入所有可用標籤 — 刪除不需要的即可。每行一個標籤名。
+- **Export Spine** 輸出一個資料夾，可自訂匯出路徑（預設為 ComfyUI output 資料夾），包含：
   - `{prefix}.json` — Spine 骨架檔（可直接在 Spine 編輯器中開啟）
   - `images/` — 各圖層裁切後的 PNG 檔案
 
 座標自動從圖片空間（Y 向下）轉換為 Spine 空間（Y 向上，原點在畫布底部中央）。繪製順序依照 Post Process 的深度排序。
+
+<details>
+<summary>可用圖層標籤（經 LayerRename 後，共 38 個）</summary>
+
+| 分類 | 標籤 |
+|------|------|
+| 頭髮 | `front-hair`, `back-hair` |
+| 頭部 | `head`, `headwear` |
+| 臉部 | `face`, `nose`, `mouth` |
+| 眼睛 | `eye-left`, `eye-right`, `eyewear` |
+| 眼部細節 | `irides`, `irides-left`, `irides-right`, `eyebrow`, `eyebrow-left`, `eyebrow-right`, `eye-white`, `eye-white-left`, `eye-white-right`, `eyelash`, `eyelash-left`, `eyelash-right` |
+| 耳朵 | `ears`, `ear-left`, `ear-right`, `earwear` |
+| 身體 | `neck`, `neckwear`, `topwear`, `bottomwear` |
+| 四肢 | `handwear`, `handwear-left`, `handwear-right`, `legwear`, `footwear` |
+| 其他 | `tail`, `wings`, `objects` |
+
+若未使用 LayerRename，請用原始標籤：`hairf`、`hairb`、`eyel`、`eyer`、`handwearl`、`handwearr`、`earl`、`earr` 等。
+
+</details>
 
 ## 安裝
 

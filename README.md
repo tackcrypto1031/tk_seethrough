@@ -63,12 +63,31 @@ PostProcess → Layer Rename (optional) → Layer Filter (optional) → Export S
 ```
 
 - **Layer Rename** maps internal tags (e.g. `hairf`, `eyel`) to Spine-friendly names (e.g. `front-hair`, `eye-left`). Built-in defaults cover all tags; override with a JSON object in `custom_mapping_json`.
-- **Layer Filter** removes unwanted layers (e.g. `wings`, `tail`) using include or exclude mode. Enter one tag per line.
-- **Export Spine** outputs a folder with:
+- **Layer Filter** removes unwanted layers using include or exclude mode. All available tags are pre-filled by default — delete the ones you don't need. Enter one tag per line.
+- **Export Spine** outputs a folder with a configurable output path (defaults to ComfyUI output directory):
   - `{prefix}.json` — Spine skeleton file (open directly in Spine editor)
   - `images/` — cropped PNG files for each layer
 
 Coordinates are automatically converted from image space (Y-down) to Spine space (Y-up, origin at bottom-center). Draw order follows depth ordering from PostProcess.
+
+<details>
+<summary>Available layer tags (after LayerRename, 38 tags)</summary>
+
+| Category | Tags |
+|----------|------|
+| Hair | `front-hair`, `back-hair` |
+| Head | `head`, `headwear` |
+| Face | `face`, `nose`, `mouth` |
+| Eyes | `eye-left`, `eye-right`, `eyewear` |
+| Eye detail | `irides`, `irides-left`, `irides-right`, `eyebrow`, `eyebrow-left`, `eyebrow-right`, `eye-white`, `eye-white-left`, `eye-white-right`, `eyelash`, `eyelash-left`, `eyelash-right` |
+| Ears | `ears`, `ear-left`, `ear-right`, `earwear` |
+| Body | `neck`, `neckwear`, `topwear`, `bottomwear` |
+| Limbs | `handwear`, `handwear-left`, `handwear-right`, `legwear`, `footwear` |
+| Other | `tail`, `wings`, `objects` |
+
+If not using LayerRename, use original tags: `hairf`, `hairb`, `eyel`, `eyer`, `handwearl`, `handwearr`, `earl`, `earr`, etc.
+
+</details>
 
 ## Installation
 
