@@ -8,6 +8,16 @@
 
 ## 本 Fork 新增功能
 
+### v0.3.0 — Spine 匯出、自動補圖 & 全輪次 PSD
+
+- **Spine 匯出節點** — 新增 `Layer Rename`、`Layer Filter`、`Export Spine` 節點，用於 Spine 2D 動畫前置拆圖。
+- **自動補齊缺失圖層** — 在 GenerateLayers (Custom) 開啟 `auto_fill`，自動重跑推理最多 5 次，補齊缺失圖層並透過原圖相似度比對升級品質差的圖層。
+- **全輪次 PSD** — 開啟 `auto_fill` 後，Save PSD 新增「Download All Runs PSD」按鈕，將所有輪次以群組資料夾方式包進同一個 PSD，方便手動比較選擇。
+- **PSD 下載按鈕** — Save PSD 現在有 3 個按鈕：
+  - **Download PSD**（綠色）— auto-fill 篩選後的最佳圖層
+  - **Download Depth PSD**（紫色）— 深度圖
+  - **Download All Runs PSD**（橘色）— 所有輪次依群組分開（需開啟 `auto_fill`）
+
 ### SeeThrough Generate Layers (Custom)
 
 新增節點 `SeeThrough_GenerateLayers_Custom`，相比原始的 `SeeThrough Generate Layers` 多一個參數：
@@ -68,7 +78,7 @@ v3 See-through 模型分**兩個推理階段**執行：
 | **SeeThrough Generate Layers (Custom)** | 圖層生成，附帶 `enable_head_detail` 開關 |
 | **SeeThrough Generate Depth** | 逐圖層深度估計 |
 | **SeeThrough Post Process** | 左右拆分、頭髮聚類、色彩還原 |
-| **SeeThrough Save PSD** | 匯出圖層 PNG + 中繼資料；透過瀏覽器下載 PSD |
+| **SeeThrough Save PSD** | 匯出圖層 PNG + 中繼資料；可下載最佳 PSD、深度 PSD 或全輪次 PSD |
 | **SeeThrough Layer Rename** | 將圖層標籤重新命名為 Spine 友善名稱（可自訂）|
 | **SeeThrough Layer Filter** | 依標籤名稱包含/排除特定圖層 |
 | **SeeThrough Export Spine** | 匯出為 Spine 2D 骨架專案（JSON + 圖片）|

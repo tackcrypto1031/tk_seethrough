@@ -8,6 +8,16 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
+### v0.3.0 — Spine Export, Auto-Fill & All Runs PSD
+
+- **Spine Export Nodes** — New `Layer Rename`, `Layer Filter`, and `Export Spine` nodes for Spine 2D animation preparation.
+- **Auto-Fill Missing Layers** — Enable `auto_fill` on GenerateLayers (Custom) to automatically re-run inference up to 5 times, filling missing layers and upgrading low-quality layers by comparing against the original image.
+- **All Runs PSD** — When `auto_fill` is enabled, a new "Download All Runs PSD" button appears on Save PSD. It creates a single PSD with group folders for each run, so you can manually compare and pick layers.
+- **PSD Download Buttons** — Save PSD now has 3 buttons:
+  - **Download PSD** (green) — best layers after auto-fill selection
+  - **Download Depth PSD** (purple) — depth maps
+  - **Download All Runs PSD** (orange) — all runs grouped by folder (requires `auto_fill`)
+
 ### SeeThrough Generate Layers (Custom)
 
 A new node `SeeThrough_GenerateLayers_Custom` that adds one parameter compared to the original `SeeThrough Generate Layers`:
@@ -68,7 +78,7 @@ This fork has been synced with [upstream v0.2.2](https://github.com/jtydhr88/Com
 | **SeeThrough Generate Layers (Custom)** | Layer generation with `enable_head_detail` toggle |
 | **SeeThrough Generate Depth** | Depth map estimation per layer |
 | **SeeThrough Post Process** | Left/right splitting, hair clustering, color restoration |
-| **SeeThrough Save PSD** | Export layers as PNGs + metadata; download PSD via browser |
+| **SeeThrough Save PSD** | Export layers as PNGs + metadata; download Best PSD, Depth PSD, or All Runs PSD via browser |
 | **SeeThrough Layer Rename** | Rename layer tags to Spine-friendly names (customizable) |
 | **SeeThrough Layer Filter** | Include/exclude specific layers before export |
 | **SeeThrough Export Spine** | Export layers as a Spine 2D skeleton project (JSON + images) |
