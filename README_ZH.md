@@ -50,6 +50,25 @@ v3 See-through 模型分**兩個推理階段**執行：
 | **SeeThrough Generate Depth** | 逐圖層深度估計 |
 | **SeeThrough Post Process** | 左右拆分、頭髮聚類、色彩還原 |
 | **SeeThrough Save PSD** | 匯出圖層 PNG + 中繼資料；透過瀏覽器下載 PSD |
+| **SeeThrough Layer Rename** | 將圖層標籤重新命名為 Spine 友善名稱（可自訂）|
+| **SeeThrough Layer Filter** | 依標籤名稱包含/排除特定圖層 |
+| **SeeThrough Export Spine** | 匯出為 Spine 2D 骨架專案（JSON + 圖片）|
+
+### Spine 匯出工作流
+
+用於 [Spine](http://esotericsoftware.com/) 動畫前置拆圖，連接方式：
+
+```
+Post Process → Layer Rename（可選）→ Layer Filter（可選）→ Export Spine
+```
+
+- **Layer Rename** 將內部標籤（如 `hairf`、`eyel`）映射為 Spine 友善名稱（如 `front-hair`、`eye-left`）。內建預設涵蓋所有標籤；可透過 `custom_mapping_json` 輸入 JSON 物件覆蓋。
+- **Layer Filter** 移除不需要的圖層（如 `wings`、`tail`），支援 include 或 exclude 模式。每行輸入一個標籤名。
+- **Export Spine** 輸出一個資料夾，包含：
+  - `{prefix}.json` — Spine 骨架檔（可直接在 Spine 編輯器中開啟）
+  - `images/` — 各圖層裁切後的 PNG 檔案
+
+座標自動從圖片空間（Y 向下）轉換為 Spine 空間（Y 向上，原點在畫布底部中央）。繪製順序依照 Post Process 的深度排序。
 
 ## 安裝
 
@@ -87,6 +106,8 @@ pip install -r requirements.txt
 3. 取消勾選 `enable_head_detail` 可跳過頭部細節，加速處理
 4. 連接至 **SeeThrough Generate Depth** → **SeeThrough Post Process** → **SeeThrough Save PSD**
 5. 執行工作流，點擊 **Download PSD** 匯出
+
+**Spine 匯出：** 將步驟 4 的 **Save PSD** 替換為 **Layer Rename** → **Layer Filter** → **Export Spine**。在 Spine 編輯器中開啟輸出的 JSON 檔案即可。
 
 ## 致謝
 

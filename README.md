@@ -50,6 +50,25 @@ This fork has been synced with [upstream v0.2.2](https://github.com/jtydhr88/Com
 | **SeeThrough Generate Depth** | Depth map estimation per layer |
 | **SeeThrough Post Process** | Left/right splitting, hair clustering, color restoration |
 | **SeeThrough Save PSD** | Export layers as PNGs + metadata; download PSD via browser |
+| **SeeThrough Layer Rename** | Rename layer tags to Spine-friendly names (customizable) |
+| **SeeThrough Layer Filter** | Include/exclude specific layers before export |
+| **SeeThrough Export Spine** | Export layers as a Spine 2D skeleton project (JSON + images) |
+
+### Spine Export Workflow
+
+For [Spine](http://esotericsoftware.com/) animation preparation, connect:
+
+```
+PostProcess → Layer Rename (optional) → Layer Filter (optional) → Export Spine
+```
+
+- **Layer Rename** maps internal tags (e.g. `hairf`, `eyel`) to Spine-friendly names (e.g. `front-hair`, `eye-left`). Built-in defaults cover all tags; override with a JSON object in `custom_mapping_json`.
+- **Layer Filter** removes unwanted layers (e.g. `wings`, `tail`) using include or exclude mode. Enter one tag per line.
+- **Export Spine** outputs a folder with:
+  - `{prefix}.json` — Spine skeleton file (open directly in Spine editor)
+  - `images/` — cropped PNG files for each layer
+
+Coordinates are automatically converted from image space (Y-down) to Spine space (Y-up, origin at bottom-center). Draw order follows depth ordering from PostProcess.
 
 ## Installation
 
@@ -87,6 +106,8 @@ You can also download models manually and place them in `ComfyUI/models/SeeThrou
 3. Uncheck `enable_head_detail` if you want faster processing without head detail layers
 4. Connect to **SeeThrough Generate Depth** → **SeeThrough Post Process** → **SeeThrough Save PSD**
 5. Run the workflow and click **Download PSD** to export
+
+**For Spine export:** Replace step 4's **Save PSD** with **Layer Rename** → **Layer Filter** → **Export Spine**. Open the output JSON in Spine editor.
 
 ## Acknowledgements
 
