@@ -62,11 +62,59 @@ v3 See-through 模型分**兩個推理階段**執行：
 Post Process → Layer Rename（可選）→ Layer Filter（可選）→ Export Spine
 ```
 
-- **Layer Rename** 將內部標籤（如 `hairf`、`eyel`）映射為 Spine 友善名稱（如 `front-hair`、`eye-left`）。內建預設涵蓋所有標籤；可透過 `custom_mapping_json` 輸入 JSON 物件覆蓋。
-- **Layer Filter** 移除不需要的圖層，支援 include 或 exclude 模式。預設已填入所有可用標籤 — 刪除不需要的即可。每行一個標籤名。
-- **Export Spine** 輸出一個資料夾，可自訂匯出路徑（預設為 ComfyUI output 資料夾），包含：
-  - `{prefix}.json` — Spine 骨架檔（可直接在 Spine 編輯器中開啟）
-  - `images/` — 各圖層裁切後的 PNG 檔案
+#### Layer Rename（圖層重命名）
+
+將內部標籤映射為 Spine 友善名稱。內建預設涵蓋所有標籤。`custom_mapping_json` 欄位為**可選** — 留空即使用預設值。
+
+**使用時機：**
+- 你希望在 Spine 中看到乾淨易讀的名稱（如 `front-hair` 而非 `hairf`）
+- 你的團隊有命名規範，需要自訂名稱
+
+**內建預設映射（部分列表）：**
+
+| 原始標籤 | → 重命名為 |
+|----------|-----------|
+| `hairf` | `front-hair` |
+| `hairb` | `back-hair` |
+| `eyel` | `eye-left` |
+| `eyer` | `eye-right` |
+| `handwearl` | `handwear-left` |
+| `handwearr` | `handwear-right` |
+| `earl` | `ear-left` |
+| `earr` | `ear-right` |
+| `topwear` | `topwear`（不變）|
+| `face` | `face`（不變）|
+
+> 已經是乾淨名稱的標籤（如 `face`、`head`、`nose`）會保持原樣。
+
+**自訂映射範例：** 在 `custom_mapping_json` 中輸入 JSON 物件來覆蓋特定名稱：
+
+```json
+{
+  "hairf": "bangs",
+  "hairb": "back-hair",
+  "topwear": "shirt",
+  "bottomwear": "skirt",
+  "handwearl": "left-glove",
+  "handwearr": "right-glove"
+}
+```
+
+只有你在 JSON 中指定的標籤會被覆蓋 — 其餘標籤仍使用內建預設值。JSON 格式錯誤時會忽略並顯示警告。
+
+#### Layer Filter（圖層篩選）
+
+移除不需要的圖層，支援 include 或 exclude 模式。預設已填入所有可用標籤 — 刪除不需要的即可。每行一個標籤名。
+
+> **提示：** 如果 Layer Rename 接在 Layer Filter 前面，請使用**重命名後**的標籤名（如 `front-hair`）。若未使用 Layer Rename，請用原始標籤（如 `hairf`）。
+
+#### Export Spine（Spine 匯出）
+
+輸出一個資料夾，可自訂匯出路徑（預設為 ComfyUI output 資料夾），包含：
+
+- `{prefix}.json` — Spine 骨架檔（可直接在 Spine 編輯器中開啟）
+- `images/` — 各圖層裁切後的 PNG 檔案
+- 設定 `output_path` 可匯出到指定目錄（如 `D:/my_project/spine_assets`）
 
 座標自動從圖片空間（Y 向下）轉換為 Spine 空間（Y 向上，原點在畫布底部中央）。繪製順序依照 Post Process 的深度排序。
 

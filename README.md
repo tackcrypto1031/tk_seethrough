@@ -62,11 +62,59 @@ For [Spine](http://esotericsoftware.com/) animation preparation, connect:
 PostProcess → Layer Rename (optional) → Layer Filter (optional) → Export Spine
 ```
 
-- **Layer Rename** maps internal tags (e.g. `hairf`, `eyel`) to Spine-friendly names (e.g. `front-hair`, `eye-left`). Built-in defaults cover all tags; override with a JSON object in `custom_mapping_json`.
-- **Layer Filter** removes unwanted layers using include or exclude mode. All available tags are pre-filled by default — delete the ones you don't need. Enter one tag per line.
-- **Export Spine** outputs a folder with a configurable output path (defaults to ComfyUI output directory):
-  - `{prefix}.json` — Spine skeleton file (open directly in Spine editor)
-  - `images/` — cropped PNG files for each layer
+#### Layer Rename
+
+Maps internal tags to Spine-friendly names. Has built-in defaults for all tags. The `custom_mapping_json` field is **optional** — leave it empty to use defaults.
+
+**When to use it:**
+- You want clean, readable names in Spine (e.g. `front-hair` instead of `hairf`)
+- Your team has a naming convention and you need custom names
+
+**Built-in default mapping (partial list):**
+
+| Original tag | → Renamed to |
+|-------------|-------------|
+| `hairf` | `front-hair` |
+| `hairb` | `back-hair` |
+| `eyel` | `eye-left` |
+| `eyer` | `eye-right` |
+| `handwearl` | `handwear-left` |
+| `handwearr` | `handwear-right` |
+| `earl` | `ear-left` |
+| `earr` | `ear-right` |
+| `topwear` | `topwear` (unchanged) |
+| `face` | `face` (unchanged) |
+
+> Tags that already have clean names (e.g. `face`, `head`, `nose`) are kept as-is.
+
+**Custom mapping example:** To override specific names, enter a JSON object in `custom_mapping_json`:
+
+```json
+{
+  "hairf": "bangs",
+  "hairb": "back-hair",
+  "topwear": "shirt",
+  "bottomwear": "skirt",
+  "handwearl": "left-glove",
+  "handwearr": "right-glove"
+}
+```
+
+Only the tags you specify in the JSON will be overridden — all other tags still use the built-in defaults. Invalid JSON is ignored with a warning.
+
+#### Layer Filter
+
+Removes unwanted layers using include or exclude mode. All available tags are pre-filled by default — delete the ones you don't need. Enter one tag per line.
+
+> **Tip:** If Layer Rename is connected before Layer Filter, use the **renamed** tag names (e.g. `front-hair`). If not using Layer Rename, use original tags (e.g. `hairf`).
+
+#### Export Spine
+
+Outputs a folder with a configurable output path (defaults to ComfyUI output directory):
+
+- `{prefix}.json` — Spine skeleton file (open directly in Spine editor)
+- `images/` — cropped PNG files for each layer
+- Set `output_path` to export to a custom directory (e.g. `D:/my_project/spine_assets`)
 
 Coordinates are automatically converted from image space (Y-down) to Spine space (Y-up, origin at bottom-center). Draw order follows depth ordering from PostProcess.
 
