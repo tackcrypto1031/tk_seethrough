@@ -1006,6 +1006,48 @@ class SeeThrough_LayerRename:
         return ({"tag2pinfo": new_tag2pinfo, "frame_size": frame_size},)
 
 
+class SeeThrough_LayerFilter:
+    """Filter layers by inclusion/exclusion lists. Useful to remove unwanted
+    parts (wings, tail, objects) before export."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "parts": ("SEETHROUGH_PARTS",),
+                "mode": (["include", "exclude"], {"default": "exclude",
+                          "tooltip": "include = keep only listed tags; exclude = remove listed tags"}),
+                "tags": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "One tag per line. Use the tag names visible in the layer list (after rename if LayerRename is connected).",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("SEETHROUGH_PARTS",)
+    RETURN_NAMES = ("parts",)
+    FUNCTION = "filter_layers"
+    CATEGORY = "SeeThrough"
+
+    def filter_layers(self, parts, mode="exclude", tags=""):
+        tag2pinfo = parts["tag2pinfo"]
+        frame_size = parts["frame_size"]
+
+        tag_set = {t.strip() for t in tags.strip().splitlines() if t.strip()}
+
+        if not tag_set:
+            return (parts,)
+
+        if mode == "include":
+            filtered = {k: v for k, v in tag2pinfo.items() if k in tag_set}
+        else:
+            filtered = {k: v for k, v in tag2pinfo.items() if k not in tag_set}
+
+        print(f"[SeeThrough] LayerFilter ({mode}): {len(tag2pinfo)} → {len(filtered)} layers", flush=True)
+        return ({"tag2pinfo": filtered, "frame_size": frame_size},)
+
+
 NODE_CLASS_MAPPINGS = {
     "SeeThrough_LoadLayerDiffModel": SeeThrough_LoadLayerDiffModel,
     "SeeThrough_LoadDepthModel": SeeThrough_LoadDepthModel,
@@ -1015,6 +1057,7 @@ NODE_CLASS_MAPPINGS = {
     "SeeThrough_PostProcess": SeeThrough_PostProcess,
     "SeeThrough_SavePSD": SeeThrough_SavePSD,
     "SeeThrough_LayerRename": SeeThrough_LayerRename,
+    "SeeThrough_LayerFilter": SeeThrough_LayerFilter,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1026,4 +1069,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SeeThrough_PostProcess": "SeeThrough Post Process",
     "SeeThrough_SavePSD": "SeeThrough Save PSD",
     "SeeThrough_LayerRename": "SeeThrough Layer Rename",
+    "SeeThrough_LayerFilter": "SeeThrough Layer Filter",
 }
