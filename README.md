@@ -8,6 +8,16 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
+### v0.3.0 — Spine Export, Auto-Fill & All Runs PSD
+
+- **Spine Export Nodes** — New `Layer Rename`, `Layer Filter`, and `Export Spine` nodes for Spine 2D animation preparation.
+- **Auto-Fill Missing Layers** — Enable `auto_fill` on GenerateLayers (Custom) to automatically re-run inference up to 5 times, filling missing layers and upgrading low-quality layers by comparing against the original image.
+- **All Runs PSD** — When `auto_fill` is enabled, a new "Download All Runs PSD" button appears on Save PSD. It creates a single PSD with group folders for each run, so you can manually compare and pick layers.
+- **PSD Download Buttons** — Save PSD now has 3 buttons:
+  - **Download PSD** (green) — best layers after auto-fill selection
+  - **Download Depth PSD** (purple) — depth maps
+  - **Download All Runs PSD** (orange) — all runs grouped by folder (requires `auto_fill`)
+
 ### SeeThrough Generate Layers (Custom)
 
 A new node `SeeThrough_GenerateLayers_Custom` that adds one parameter compared to the original `SeeThrough Generate Layers`:
@@ -15,6 +25,8 @@ A new node `SeeThrough_GenerateLayers_Custom` that adds one parameter compared t
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `enable_head_detail` | true | v3 models only: toggle the head detail inference stage on/off |
+| `auto_fill` | false | Auto-fill missing layers: re-runs inference (up to 5 times) until all expected layers are generated (v3+head=24, v3 body=13, v2=19) |
+| `min_alpha_coverage` | 0.01 | Minimum alpha coverage ratio to consider a layer valid. Only used when `auto_fill` is enabled |
 
 #### How It Works
 
@@ -26,6 +38,23 @@ The v3 See-through model runs in **two inference stages**:
 Each stage is a full diffusion pipeline call. By setting `enable_head_detail = false`, the entire head stage is **skipped** (no GPU computation), saving approximately **50% of the total inference time**.
 
 This is useful when you only need body-level decomposition and don't require fine-grained facial features.
+
+#### Multi-Run Auto-Fill
+
+The diffusion model is stochastic — each run may produce slightly different results. Sometimes a layer (e.g., face or hand) is missing or nearly empty in one run but present in another.
+
+Enable `auto_fill` to automatically re-run inference until all expected layers are generated with good quality:
+
+1. **Run 1** uses the original seed — this is the primary result
+2. Each layer is compared against the original image to compute a **similarity score** (0~1)
+3. Layers that are **missing** (alpha coverage below threshold) or have **low similarity** (< 0.85) trigger additional runs
+4. **Run 2** uses `seed + 1`, **Run 3** uses `seed + 2`, etc.
+5. For each layer, the version with the **highest similarity to the original** is kept
+6. The process repeats up to **5 runs** or until all layers have good similarity
+
+This means even if Run 1 generates a face layer, if Run 2 produces a face that better matches the original image, Run 2's version will be used automatically.
+
+Models are loaded to GPU only once across all runs — the overhead is only the additional diffusion time, not model loading.
 
 > **Note:** For v2 models, this toggle has no effect since v2 uses a single-stage inference.
 
@@ -49,7 +78,112 @@ This fork has been synced with [upstream v0.2.2](https://github.com/jtydhr88/Com
 | **SeeThrough Generate Layers (Custom)** | Layer generation with `enable_head_detail` toggle |
 | **SeeThrough Generate Depth** | Depth map estimation per layer |
 | **SeeThrough Post Process** | Left/right splitting, hair clustering, color restoration |
-| **SeeThrough Save PSD** | Export layers as PNGs + metadata; download PSD via browser |
+| **SeeThrough Save PSD** | Export layers as PNGs + metadata; download Best PSD, Depth PSD, or All Runs PSD via browser |
+| **SeeThrough Layer Rename** | Rename layer tags to Spine-friendly names (customizable) |
+| **SeeThrough Layer Filter** | Include/exclude specific layers before export |
+| **SeeThrough Export Spine** | Export layers as a Spine 2D skeleton project (JSON + images) |
+
+### Spine Export Workflow
+
+For [Spine](http://esotericsoftware.com/) animation preparation, connect:
+
+```
+PostProcess → Layer Rename (optional) → Layer Filter (optional) → Export Spine
+```
+
+#### Layer Rename
+
+Maps internal tags to Spine-friendly names. Has built-in defaults for all tags. The `custom_mapping_json` field is **optional** — leave it empty to use defaults.
+
+**When to use it:**
+- You want clean, readable names in Spine (e.g. `front-hair` instead of `hairf`)
+- Your team has a naming convention and you need custom names
+
+**Built-in default mapping (partial list):**
+
+| Original tag | → Renamed to |
+|-------------|-------------|
+| `hairf` | `front-hair` |
+| `hairb` | `back-hair` |
+| `eyel` | `eye-left` |
+| `eyer` | `eye-right` |
+| `handwearl` | `handwear-left` |
+| `handwearr` | `handwear-right` |
+| `earl` | `ear-left` |
+| `earr` | `ear-right` |
+| `topwear` | `topwear` (unchanged) |
+| `face` | `face` (unchanged) |
+
+> Tags that already have clean names (e.g. `face`, `head`, `nose`) are kept as-is.
+
+**Custom mapping example:** To override specific names, enter a JSON object in `custom_mapping_json`:
+
+```json
+{
+  "hairf": "bangs",
+  "hairb": "back-hair",
+  "topwear": "shirt",
+  "bottomwear": "skirt",
+  "handwearl": "left-glove",
+  "handwearr": "right-glove"
+}
+```
+
+Only the tags you specify in the JSON will be overridden — all other tags still use the built-in defaults. Invalid JSON is ignored with a warning.
+
+#### Layer Filter
+
+Removes unwanted layers using include or exclude mode. All available tags are pre-filled by default — delete the ones you don't need. Enter one tag per line.
+
+> **Tip:** If Layer Rename is connected before Layer Filter, use the **renamed** tag names (e.g. `front-hair`). If not using Layer Rename, use original tags (e.g. `hairf`).
+
+#### Export Spine
+
+Outputs a folder with a configurable output path (defaults to ComfyUI output directory):
+
+- `{prefix}.json` — Spine skeleton file (open directly in Spine editor)
+- `images/` — cropped PNG files for each layer
+- Set `output_path` to export to a custom directory (e.g. `D:/my_project/spine_assets`)
+
+Coordinates are automatically converted from image space (Y-down) to Spine space (Y-up, origin at bottom-center). Draw order follows depth ordering from PostProcess.
+
+#### PSD Import vs JSON Export — Which Should I Use?
+
+Spine Professional (3.6+) can import PSD files directly, so you may wonder whether this JSON export is needed. Here's the comparison:
+
+| | Save PSD → Spine PSD Import | Export Spine (JSON + images) |
+|---|---|---|
+| **Spine version** | Professional 3.6+ only | **All versions** (Essential + Professional) |
+| **Layer positioning** | Automatic | Automatic (coords pre-converted) |
+| **Layer naming** | Depends on PSD layer names | Controllable via LayerRename |
+| **Layer filtering** | Must hide/delete in PSD first | Built-in LayerFilter node |
+| **Iteration** | Re-import PSD to update images | Re-export to update |
+| **Bone hierarchy** | Not auto-created | Not auto-created |
+| **Best for** | Spine Professional users who want a quick start | Spine Essential users, or teams wanting pre-filtered/renamed layers in an automated pipeline |
+
+**Recommendation:**
+- **Spine Professional users** → Use **Save PSD** and import via Spine's built-in PSD import. It's the simplest workflow.
+- **Spine Essential users** → Use **Export Spine**, as Essential does not support PSD import.
+- **Automated pipelines** → Use **Export Spine** with LayerRename + LayerFilter for consistent, pre-processed output.
+
+<details>
+<summary>Available layer tags (after LayerRename, 38 tags)</summary>
+
+| Category | Tags |
+|----------|------|
+| Hair | `front-hair`, `back-hair` |
+| Head | `head`, `headwear` |
+| Face | `face`, `nose`, `mouth` |
+| Eyes | `eye-left`, `eye-right`, `eyewear` |
+| Eye detail | `irides`, `irides-left`, `irides-right`, `eyebrow`, `eyebrow-left`, `eyebrow-right`, `eye-white`, `eye-white-left`, `eye-white-right`, `eyelash`, `eyelash-left`, `eyelash-right` |
+| Ears | `ears`, `ear-left`, `ear-right`, `earwear` |
+| Body | `neck`, `neckwear`, `topwear`, `bottomwear` |
+| Limbs | `handwear`, `handwear-left`, `handwear-right`, `legwear`, `footwear` |
+| Other | `tail`, `wings`, `objects` |
+
+If not using LayerRename, use original tags: `hairf`, `hairb`, `eyel`, `eyer`, `handwearl`, `handwearr`, `earl`, `earr`, etc.
+
+</details>
 
 ## Installation
 
@@ -87,6 +221,8 @@ You can also download models manually and place them in `ComfyUI/models/SeeThrou
 3. Uncheck `enable_head_detail` if you want faster processing without head detail layers
 4. Connect to **SeeThrough Generate Depth** → **SeeThrough Post Process** → **SeeThrough Save PSD**
 5. Run the workflow and click **Download PSD** to export
+
+**For Spine export:** Replace step 4's **Save PSD** with **Layer Rename** → **Layer Filter** → **Export Spine**. Open the output JSON in Spine editor.
 
 ## Acknowledgements
 

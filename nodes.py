@@ -110,7 +110,7 @@ os.makedirs(SEETHROUGH_MODELS_DIR, exist_ok=True)
 
 class SeeThrough_LayersData:
     """Output of GenerateLayers: raw RGBA layers + preprocessing info."""
-    def __init__(self, layer_dict, fullpage, input_img, resolution, pad_size, pad_pos):
+    def __init__(self, layer_dict, fullpage, input_img, resolution, pad_size, pad_pos, all_runs_layers=None):
         self.layer_dict = layer_dict      # tag -> RGBA numpy (resolution x resolution)
         self.fullpage = fullpage           # center-padded input (resolution x resolution, RGBA)
         self.input_img = input_img         # original input (RGBA)
@@ -118,15 +118,17 @@ class SeeThrough_LayersData:
         self.pad_size = pad_size
         self.pad_pos = pad_pos
         self.scale = pad_size[0] / resolution
+        self.all_runs_layers = all_runs_layers  # list of {"run": int, "layer_dict": {tag: RGBA}} or None
 
 
 class SeeThrough_LayersDepthData:
     """Output of GenerateDepth: layers + per-tag depth maps."""
-    def __init__(self, layer_dict, depth_dict, fullpage, resolution):
+    def __init__(self, layer_dict, depth_dict, fullpage, resolution, all_runs_layers=None):
         self.layer_dict = layer_dict      # tag -> RGBA numpy
         self.depth_dict = depth_dict      # tag -> float32 depth [0,1]
         self.fullpage = fullpage
         self.resolution = resolution
+        self.all_runs_layers = all_runs_layers  # passed through from LayersData
 
 
 def seed_everything(seed):
@@ -494,6 +496,10 @@ class SeeThrough_GenerateLayers_Custom:
                 "num_inference_steps": ("INT", {"default": 30, "min": 1, "max": 100}),
                 "enable_head_detail": ("BOOLEAN", {"default": True,
                     "tooltip": "v3 only: enable head detail stage (face, eyes, ears, etc). Disabling skips the 2nd inference pass and saves ~50% time."}),
+                "auto_fill": ("BOOLEAN", {"default": False,
+                    "tooltip": "Auto-fill missing layers: if enabled, automatically re-runs inference (up to 5 times) until all expected layers are generated. Expected: v3+head=24, v3 body=13, v2=19."}),
+                "min_alpha_coverage": ("FLOAT", {"default": 0.01, "min": 0.001, "max": 0.1, "step": 0.005,
+                    "tooltip": "Minimum alpha coverage ratio to consider a layer valid. Layers below this threshold are treated as missing. Only used when auto_fill is enabled."}),
             },
         }
 
@@ -502,56 +508,46 @@ class SeeThrough_GenerateLayers_Custom:
     FUNCTION = "generate"
     CATEGORY = "SeeThrough"
 
-    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, enable_head_detail=True):
-        pipeline = layerdiff_model
-        device = mm.get_torch_device()
-        offload = torch.device("cpu")
-        seed_everything(seed)
+    def _check_missing_layers(self, layer_dict, resolution, min_alpha_coverage):
+        """Return list of tags whose alpha coverage is below threshold."""
+        total_pixels = resolution * resolution
+        missing = []
+        for tag, img in layer_dict.items():
+            alpha_ratio = np.sum(img[..., -1] > 10) / total_pixels
+            if alpha_ratio < min_alpha_coverage:
+                missing.append(tag)
+        return missing
 
-        # Convert ComfyUI IMAGE to numpy RGBA
-        img_np = (image[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-        if img_np.shape[-1] == 3:
-            img_np = np.concatenate([img_np, np.full((*img_np.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
-        input_img = img_np.copy()
+    @staticmethod
+    def _layer_similarity(layer_img, original_img):
+        """Compute similarity between a generated layer and the original image.
+        Returns a score in [0, 1] where 1 = perfect match.
+        Compares RGB values only in regions where the layer has alpha > 10."""
+        mask = layer_img[..., -1] > 10
+        if not np.any(mask):
+            return 0.0
 
-        fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
-        scale = pad_size[0] / resolution
+        # Ensure shapes match by using minimum dimensions
+        h = min(layer_img.shape[0], original_img.shape[0])
+        w = min(layer_img.shape[1], original_img.shape[1])
+        mask = mask[:h, :w]
 
-        tag_version = pipeline.unet.get_tag_version()
-        layer_dict = {}
+        layer_rgb = layer_img[:h, :w, :3][mask].astype(np.float32)
+        orig_rgb = original_img[:h, :w, :3][mask].astype(np.float32)
 
-        print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
-              f"steps={num_inference_steps}, head_detail={enable_head_detail}", flush=True)
-        _log_vram("GenerateLayers_Custom start")
+        if layer_rgb.size == 0:
+            return 0.0
 
-        # Encode text prompts on GPU, then offload text encoders
-        pipeline.text_encoder.to(device)
-        pipeline.text_encoder_2.to(device)
-        _log_vram("Text encoders loaded to GPU")
+        # Mean Absolute Error, normalized to [0, 1] similarity
+        mae = np.mean(np.abs(layer_rgb - orig_rgb)) / 255.0
+        return float(1.0 - mae)
 
-        if tag_version == "v2":
-            prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
-        elif tag_version == "v3":
-            body_tags = VALID_BODY_PARTS_V3_BODY
-            head_tags = VALID_BODY_PARTS_V3_HEAD
-            body_embeds, body_pooled = pipeline.encode_cropped_prompt_77tokens(body_tags)
-            if enable_head_detail:
-                head_embeds, head_pooled = pipeline.encode_cropped_prompt_77tokens(head_tags)
-        else:
-            raise ValueError(f"Unknown tag version: {tag_version}")
-
-        pipeline.text_encoder.to(offload)
-        pipeline.text_encoder_2.to(offload)
-        _log_vram("Text encoders offloaded to CPU")
-
-        # Load UNet+VAE to GPU for diffusion
-        pipeline.unet.to(device)
-        pipeline.vae.to(device)
-        pipeline.trans_vae.to(device)
-        mm.soft_empty_cache()
-        _log_vram("UNet+VAE on GPU, ready for diffusion")
-
-        rng = torch.Generator(device=device).manual_seed(seed)
+    def _run_diffusion(self, pipeline, device, rng, tag_version, num_inference_steps,
+                       fullpage, prompt_embeds=None, pooled_prompt_embeds=None,
+                       body_embeds=None, body_pooled=None, head_embeds=None, head_pooled=None,
+                       enable_head_detail=True, input_img=None, scale=1.0, pad_pos=None, resolution=1280):
+        """Run a single diffusion pass and return the layer_dict."""
+        run_layer_dict = {}
 
         if tag_version == "v2":
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
@@ -560,21 +556,19 @@ class SeeThrough_GenerateLayers_Custom:
                            fullpage=fullpage)
             _log_vram("v2 diffusion complete")
             for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
-                layer_dict[tag] = rst
+                run_layer_dict[tag] = rst
 
         elif tag_version == "v3":
-            # Stage 1: Body (always runs)
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
                            generator=rng, guidance_scale=1.0,
                            prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
                            fullpage=fullpage, group_index=0)
             _log_vram("v3 body diffusion complete")
-            for rst, tag in zip(out.images, body_tags):
-                layer_dict[tag] = rst
+            for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_BODY):
+                run_layer_dict[tag] = rst
 
-            # Stage 2: Head detail (skipped if enable_head_detail is off)
-            if enable_head_detail and "head" in layer_dict:
-                head_img = layer_dict["head"]
+            if enable_head_detail and "head" in run_layer_dict:
+                head_img = run_layer_dict["head"]
                 nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
                 if nz is not None:
                     hx0, hy0, hw, hh = cv2.boundingRect(nz)
@@ -597,13 +591,192 @@ class SeeThrough_GenerateLayers_Custom:
                     py1, py2, px1, px2 = (coords / scale).astype(np.int64)
                     scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
 
-                    for rst, tag in zip(out.images, head_tags):
+                    for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_HEAD):
                         rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
                         full = canvas.copy()
                         full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
-                        layer_dict[tag] = full
+                        run_layer_dict[tag] = full
 
-        # Offload pipeline back to CPU
+        return run_layer_dict
+
+    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30,
+                 enable_head_detail=True, auto_fill=False, min_alpha_coverage=0.01):
+        pipeline = layerdiff_model
+        device = mm.get_torch_device()
+        offload = torch.device("cpu")
+        seed_everything(seed)
+
+        # Convert ComfyUI IMAGE to numpy RGBA
+        img_np = (image[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+        if img_np.shape[-1] == 3:
+            img_np = np.concatenate([img_np, np.full((*img_np.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
+        input_img = img_np.copy()
+
+        fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
+        scale = pad_size[0] / resolution
+
+        tag_version = pipeline.unet.get_tag_version()
+        layer_dict = {}
+
+        # Determine expected layer count based on model version and settings
+        if tag_version == "v2":
+            expected_tags = set(VALID_BODY_PARTS_V2)
+        elif tag_version == "v3":
+            expected_tags = set(VALID_BODY_PARTS_V3_BODY)
+            if enable_head_detail:
+                expected_tags |= set(VALID_BODY_PARTS_V3_HEAD)
+        else:
+            expected_tags = set()
+        expected_count = len(expected_tags)
+
+        print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
+              f"steps={num_inference_steps}, head_detail={enable_head_detail}, "
+              f"auto_fill={auto_fill}, expected_layers={expected_count}", flush=True)
+        _log_vram("GenerateLayers_Custom start")
+
+        # Encode text prompts on GPU, then offload text encoders (done once for all runs)
+        pipeline.text_encoder.to(device)
+        pipeline.text_encoder_2.to(device)
+        _log_vram("Text encoders loaded to GPU")
+
+        prompt_embeds, pooled_prompt_embeds = None, None
+        body_embeds, body_pooled = None, None
+        head_embeds, head_pooled = None, None
+
+        if tag_version == "v2":
+            prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
+        elif tag_version == "v3":
+            body_embeds, body_pooled = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V3_BODY)
+            if enable_head_detail:
+                head_embeds, head_pooled = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V3_HEAD)
+        else:
+            raise ValueError(f"Unknown tag version: {tag_version}")
+
+        pipeline.text_encoder.to(offload)
+        pipeline.text_encoder_2.to(offload)
+        _log_vram("Text encoders offloaded to CPU")
+
+        # Load UNet+VAE to GPU for diffusion (kept on GPU across all runs)
+        pipeline.unet.to(device)
+        pipeline.vae.to(device)
+        pipeline.trans_vae.to(device)
+        mm.soft_empty_cache()
+        _log_vram("UNet+VAE on GPU, ready for diffusion")
+
+        max_runs = 5 if auto_fill else 1
+        all_runs_layers = []  # collect all run results for grouped PSD
+
+        # --- Run 1: primary inference ---
+        rng = torch.Generator(device=device).manual_seed(seed)
+        layer_dict = self._run_diffusion(
+            pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+            prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+            body_embeds=body_embeds, body_pooled=body_pooled,
+            head_embeds=head_embeds, head_pooled=head_pooled,
+            enable_head_detail=enable_head_detail, input_img=input_img,
+            scale=scale, pad_pos=pad_pos, resolution=resolution)
+        _log_vram("Run 1 diffusion complete")
+
+        # Store Run 1 results for grouped PSD
+        if auto_fill:
+            all_runs_layers.append({"run": 1, "seed": seed, "layer_dict": dict(layer_dict)})
+
+        # Compute similarity scores for Run 1
+        total_pixels = resolution * resolution
+        similarity_scores = {}
+        missing_tags = []
+        for tag in expected_tags:
+            if tag in layer_dict:
+                alpha_ratio = np.sum(layer_dict[tag][..., -1] > 10) / total_pixels
+                if alpha_ratio >= min_alpha_coverage:
+                    similarity_scores[tag] = self._layer_similarity(layer_dict[tag], fullpage)
+                else:
+                    missing_tags.append(tag)
+                    similarity_scores[tag] = 0.0
+            else:
+                missing_tags.append(tag)
+                similarity_scores[tag] = 0.0
+
+        valid_count = expected_count - len(missing_tags)
+        print(f"[SeeThrough] Run 1 complete: {valid_count}/{expected_count} valid layers", flush=True)
+        for tag in sorted(similarity_scores.keys()):
+            status = "MISSING" if tag in missing_tags else f"sim={similarity_scores[tag]:.4f}"
+            print(f"  - {tag}: {status}", flush=True)
+
+        # --- Auto-fill: runs 2..5 — fill missing layers AND upgrade low-similarity layers ---
+        if auto_fill:
+            needs_improvement = len(missing_tags) > 0 or any(
+                s < 0.85 for tag, s in similarity_scores.items() if tag not in missing_tags
+            )
+
+            if not needs_improvement:
+                print(f"[SeeThrough] Run 1 all layers valid with good similarity, skipping extra runs", flush=True)
+            else:
+                if missing_tags:
+                    print(f"[SeeThrough] Auto-fill: {len(missing_tags)} missing layers: {missing_tags}", flush=True)
+                low_sim = {t: s for t, s in similarity_scores.items() if s < 0.85 and t not in missing_tags}
+                if low_sim:
+                    print(f"[SeeThrough] Auto-fill: {len(low_sim)} low-similarity layers: "
+                          f"{[(t, f'{s:.4f}') for t, s in low_sim.items()]}", flush=True)
+
+                for run_idx in range(2, max_runs + 1):
+                    if not missing_tags and not any(s < 0.85 for s in similarity_scores.values()):
+                        print(f"[SeeThrough] All layers filled with good similarity, stopping", flush=True)
+                        break
+
+                    run_seed = seed + run_idx - 1
+                    print(f"[SeeThrough] Auto-fill run {run_idx}/{max_runs} (seed={run_seed})", flush=True)
+                    seed_everything(run_seed)
+                    rng = torch.Generator(device=device).manual_seed(run_seed)
+
+                    run_layer_dict = self._run_diffusion(
+                        pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+                        prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+                        body_embeds=body_embeds, body_pooled=body_pooled,
+                        head_embeds=head_embeds, head_pooled=head_pooled,
+                        enable_head_detail=enable_head_detail, input_img=input_img,
+                        scale=scale, pad_pos=pad_pos, resolution=resolution)
+                    _log_vram(f"Run {run_idx} diffusion complete")
+
+                    # Store this run's results for grouped PSD
+                    all_runs_layers.append({"run": run_idx, "seed": run_seed, "layer_dict": dict(run_layer_dict)})
+
+                    upgrades = 0
+                    for tag in expected_tags:
+                        if tag not in run_layer_dict:
+                            continue
+                        new_img = run_layer_dict[tag]
+                        new_alpha = np.sum(new_img[..., -1] > 10) / total_pixels
+                        if new_alpha < min_alpha_coverage:
+                            continue
+
+                        new_sim = self._layer_similarity(new_img, fullpage)
+                        old_sim = similarity_scores.get(tag, 0.0)
+
+                        if tag in missing_tags:
+                            # Fill missing layer
+                            layer_dict[tag] = new_img
+                            similarity_scores[tag] = new_sim
+                            missing_tags.remove(tag)
+                            upgrades += 1
+                            print(f"[SeeThrough] Run {run_idx}: filled '{tag}' (sim={new_sim:.4f})", flush=True)
+                        elif new_sim > old_sim:
+                            # Upgrade to higher similarity version
+                            layer_dict[tag] = new_img
+                            similarity_scores[tag] = new_sim
+                            upgrades += 1
+                            print(f"[SeeThrough] Run {run_idx}: upgraded '{tag}' "
+                                  f"(sim {old_sim:.4f} → {new_sim:.4f})", flush=True)
+
+                    valid_count = expected_count - len(missing_tags)
+                    print(f"[SeeThrough] After run {run_idx}: {valid_count}/{expected_count} valid, "
+                          f"{upgrades} layers improved", flush=True)
+
+                if missing_tags:
+                    print(f"[SeeThrough] WARNING: after {max_runs} runs, still missing ({len(missing_tags)}): "
+                          f"{missing_tags}", flush=True)
+
+        # Offload pipeline back to CPU (once, after all runs)
         pipeline.unet.to(offload)
         pipeline.vae.to(offload)
         pipeline.trans_vae.to(offload)
@@ -611,7 +784,8 @@ class SeeThrough_GenerateLayers_Custom:
         _log_vram("GenerateLayers_Custom offloaded to CPU")
         print(f"[SeeThrough] GenerateLayers_Custom complete: {len(layer_dict)} layers, pipeline offloaded to CPU", flush=True)
 
-        layers_data = SeeThrough_LayersData(layer_dict, fullpage, input_img, resolution, pad_size, pad_pos)
+        layers_data = SeeThrough_LayersData(layer_dict, fullpage, input_img, resolution, pad_size, pad_pos,
+                                               all_runs_layers=all_runs_layers if all_runs_layers else None)
 
         preview_dict = {}
         for tag, img in layer_dict.items():
@@ -724,7 +898,8 @@ class SeeThrough_GenerateDepth:
 
         print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps, Marigold offloaded to CPU", flush=True)
 
-        result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution)
+        result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution,
+                                                all_runs_layers=getattr(layers, 'all_runs_layers', None))
 
         # Preview: blend with depth info
         preview_dict = {}
@@ -850,7 +1025,9 @@ class SeeThrough_PostProcess:
                     tag2pinfo[t]["depth_median"] = face_dm + 0.001
 
         frame_size = fullpage.shape[:2]
-        parts_data = {"tag2pinfo": tag2pinfo, "frame_size": frame_size}
+        all_runs_layers = getattr(layers_depth, 'all_runs_layers', None)
+        parts_data = {"tag2pinfo": tag2pinfo, "frame_size": frame_size,
+                       "all_runs_layers": all_runs_layers}
 
         print(f"[SeeThrough] PostProcess complete: {len(tag2pinfo)} layers", flush=True)
         for tag, pinfo in sorted(tag2pinfo.items(), key=lambda x: x[1].get("depth_median", 1)):
@@ -919,11 +1096,52 @@ class SeeThrough_SavePSD:
 
             layer_info_list.append(entry)
 
+        # Save all runs data if available (for grouped PSD)
+        all_runs_layers = parts.get("all_runs_layers")
+        all_runs_info = []
+        if all_runs_layers:
+            for run_data in all_runs_layers:
+                run_idx = run_data["run"]
+                run_seed = run_data.get("seed", "?")
+                run_layer_dict = run_data["layer_dict"]
+                run_layers = []
+                for tag, img in run_layer_dict.items():
+                    if img is None:
+                        continue
+                    mask = img[..., -1] > 10
+                    if not np.any(mask):
+                        continue
+                    # Compute bounding box from alpha
+                    nz = cv2.findNonZero(mask.astype(np.uint8))
+                    if nz is not None:
+                        bx, by, bw, bh = cv2.boundingRect(nz)
+                        cropped = img[by:by+bh, bx:bx+bw]
+                        x1, y1, x2, y2 = bx, by, bx+bw, by+bh
+                    else:
+                        cropped = img
+                        x1, y1 = 0, 0
+                        x2, y2 = img.shape[1], img.shape[0]
+
+                    run_filename = f"{filename_prefix}_{ts}_{uid}_run{run_idx}_{tag}.png"
+                    Image.fromarray(cropped).save(os.path.join(output_dir, run_filename))
+                    run_layers.append({
+                        "name": tag, "filename": run_filename,
+                        "left": int(x1), "top": int(y1), "right": int(x2), "bottom": int(y2),
+                    })
+                all_runs_info.append({
+                    "run": run_idx, "seed": run_seed,
+                    "layer_count": len(run_layers), "layers": run_layers,
+                })
+            print(f"[SeeThrough] Saved {len(all_runs_info)} runs for grouped PSD", flush=True)
+
         info_filename = f"{filename_prefix}_{ts}_{uid}_layers.json"
         info_path = os.path.join(output_dir, info_filename)
+        info_data = {"prefix": filename_prefix, "timestamp": f"{ts}_{uid}",
+                     "layers": layer_info_list, "width": int(canvas_w), "height": int(canvas_h)}
+        if all_runs_info:
+            info_data["all_runs"] = all_runs_info
         with open(info_path, "w", encoding="utf-8") as f:
-            json.dump({"prefix": filename_prefix, "timestamp": f"{ts}_{uid}",
-                       "layers": layer_info_list, "width": int(canvas_w), "height": int(canvas_h)}, f, indent=2)
+            json.dump(info_data, f, indent=2)
 
         log_path = os.path.join(output_dir, "seethrough_psd_info.log")
         with open(log_path, "w") as f:
@@ -931,6 +1149,267 @@ class SeeThrough_SavePSD:
 
         print(f"[SeeThrough] {len(layer_info_list)} layers saved. Use 'Download PSD' button to generate PSD.", flush=True)
         return (info_path,)
+
+
+# Default tag-to-Spine name mapping
+DEFAULT_SPINE_NAMES = {
+    "front hair": "front-hair", "back hair": "back-hair",
+    "hairf": "front-hair", "hairb": "back-hair", "hair": "hair",
+    "head": "head", "headwear": "headwear",
+    "face": "face", "irides": "irides", "eyebrow": "eyebrow",
+    "eyewhite": "eye-white", "eyelash": "eyelash", "eyewear": "eyewear",
+    "eyes": "eyes", "eyel": "eye-left", "eyer": "eye-right",
+    "browl": "eyebrow-left", "browr": "eyebrow-right",
+    "eyewhitel": "eye-white-left", "eyewhiter": "eye-white-right",
+    "iridesl": "irides-left", "iridesr": "irides-right",
+    "eyelashl": "eyelash-left", "eyelashr": "eyelash-right",
+    "eyebrowl": "eyebrow-left", "eyebrowr": "eyebrow-right",
+    "ears": "ears", "earl": "ear-left", "earr": "ear-right",
+    "earwear": "earwear",
+    "nose": "nose", "mouth": "mouth",
+    "neck": "neck", "neckwear": "neckwear",
+    "topwear": "topwear", "bottomwear": "bottomwear",
+    "handwear": "handwear", "handwearl": "handwear-left", "handwearr": "handwear-right",
+    "legwear": "legwear", "footwear": "footwear",
+    "tail": "tail", "wings": "wings", "objects": "objects",
+}
+
+
+class SeeThrough_LayerRename:
+    """Rename layer tags to Spine-friendly names. Uses built-in defaults
+    or a user-supplied JSON mapping (one key per line: "old_tag": "new_name")."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "parts": ("SEETHROUGH_PARTS",),
+            },
+            "optional": {
+                "custom_mapping_json": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "tooltip": "JSON object to override default names, e.g. {\"hairf\": \"bangs\", \"topwear\": \"shirt\"}. Leave empty to use defaults.",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("SEETHROUGH_PARTS",)
+    RETURN_NAMES = ("parts",)
+    FUNCTION = "rename"
+    CATEGORY = "SeeThrough"
+
+    def rename(self, parts, custom_mapping_json=""):
+        import json as _json
+        tag2pinfo = parts["tag2pinfo"]
+        frame_size = parts["frame_size"]
+
+        mapping = dict(DEFAULT_SPINE_NAMES)
+        if custom_mapping_json.strip():
+            try:
+                user_map = _json.loads(custom_mapping_json.strip())
+                mapping.update(user_map)
+            except Exception as e:
+                print(f"[SeeThrough] LayerRename: invalid JSON, using defaults. Error: {e}", flush=True)
+
+        new_tag2pinfo = {}
+        for tag, pinfo in tag2pinfo.items():
+            new_name = mapping.get(tag, tag)
+            pinfo_copy = dict(pinfo)
+            pinfo_copy["tag"] = new_name
+            pinfo_copy["original_tag"] = tag
+            new_tag2pinfo[new_name] = pinfo_copy
+
+        print(f"[SeeThrough] LayerRename: {len(new_tag2pinfo)} layers renamed", flush=True)
+        return ({"tag2pinfo": new_tag2pinfo, "frame_size": frame_size},)
+
+
+class SeeThrough_LayerFilter:
+    """Filter layers by inclusion/exclusion lists. Useful to remove unwanted
+    parts (wings, tail, objects) before export."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "parts": ("SEETHROUGH_PARTS",),
+                "mode": (["include", "exclude"], {"default": "exclude",
+                          "tooltip": "include = keep only listed tags; exclude = remove listed tags"}),
+                "tags": ("STRING", {
+                    "default": "\n".join([
+                        "front-hair", "back-hair", "head", "headwear",
+                        "face", "irides", "irides-left", "irides-right",
+                        "eyebrow", "eyebrow-left", "eyebrow-right",
+                        "eye-white", "eye-white-left", "eye-white-right",
+                        "eyelash", "eyelash-left", "eyelash-right",
+                        "eye-left", "eye-right", "eyewear",
+                        "ears", "ear-left", "ear-right", "earwear",
+                        "nose", "mouth",
+                        "neck", "neckwear",
+                        "topwear", "bottomwear",
+                        "handwear", "handwear-left", "handwear-right",
+                        "legwear", "footwear",
+                        "tail", "wings", "objects",
+                    ]),
+                    "multiline": True,
+                    "tooltip": "One tag per line. All available tags are pre-filled — delete the ones you want to exclude (exclude mode) or keep only the ones you need (include mode). Names shown are post-rename defaults; if not using LayerRename, use original tags (e.g. hairf, eyel).",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("SEETHROUGH_PARTS",)
+    RETURN_NAMES = ("parts",)
+    FUNCTION = "filter_layers"
+    CATEGORY = "SeeThrough"
+
+    def filter_layers(self, parts, mode="exclude", tags=""):
+        tag2pinfo = parts["tag2pinfo"]
+        frame_size = parts["frame_size"]
+
+        tag_set = {t.strip() for t in tags.strip().splitlines() if t.strip()}
+
+        if not tag_set:
+            return (parts,)
+
+        if mode == "include":
+            filtered = {k: v for k, v in tag2pinfo.items() if k in tag_set}
+        else:
+            filtered = {k: v for k, v in tag2pinfo.items() if k not in tag_set}
+
+        print(f"[SeeThrough] LayerFilter ({mode}): {len(tag2pinfo)} → {len(filtered)} layers", flush=True)
+        return ({"tag2pinfo": filtered, "frame_size": frame_size},)
+
+
+class SeeThrough_ExportSpine:
+    """Export layers as a Spine 2D skeleton project (JSON + images/).
+    Output can be opened directly in the Spine editor."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "parts": ("SEETHROUGH_PARTS",),
+                "filename_prefix": ("STRING", {"default": "seethrough_spine"}),
+                "spine_version": ("STRING", {"default": "4.2.28",
+                                              "tooltip": "Spine editor version string for the skeleton JSON."}),
+            },
+            "optional": {
+                "output_path": ("STRING", {
+                    "default": "",
+                    "tooltip": "Custom output directory path. Leave empty to use ComfyUI default output folder.",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("spine_json_path",)
+    FUNCTION = "export"
+    CATEGORY = "SeeThrough"
+    OUTPUT_NODE = True
+
+    def export(self, parts, filename_prefix="seethrough_spine", spine_version="4.2.28", output_path=""):
+        from PIL import Image
+        import json as _json
+
+        tag2pinfo = parts["tag2pinfo"]
+        frame_size = parts["frame_size"]
+        canvas_h, canvas_w = frame_size
+
+        if output_path.strip():
+            output_dir = output_path.strip()
+            os.makedirs(output_dir, exist_ok=True)
+        else:
+            output_dir = folder_paths.get_output_directory()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        uid = str(uuid.uuid4())[:8]
+
+        project_dir = os.path.join(output_dir, f"{filename_prefix}_{ts}_{uid}")
+        images_dir = os.path.join(project_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+
+        # Sort by depth_median descending (back-to-front for Spine slots array)
+        sorted_tags = sorted(
+            tag2pinfo.keys(),
+            key=lambda t: tag2pinfo[t].get("depth_median", 1),
+            reverse=True,
+        )
+
+        slots = []
+        attachments = {}
+
+        for tag in sorted_tags:
+            pinfo = tag2pinfo[tag]
+            img = pinfo.get("img")
+            if img is None:
+                continue
+
+            # Save cropped PNG
+            safe_name = tag.replace(" ", "-")
+            png_filename = f"{safe_name}.png"
+            Image.fromarray(img).save(os.path.join(images_dir, png_filename))
+
+            # Bounding box on original canvas (after _compute_depth_median cropping)
+            xyxy = pinfo.get("xyxy", [0, 0, img.shape[1], img.shape[0]])
+            x1, y1, x2, y2 = [int(v) for v in xyxy]
+            img_w = img.shape[1]
+            img_h = img.shape[0]
+
+            # Center of this layer on the original canvas (Y-down coords)
+            center_x_canvas = (x1 + x2) / 2.0
+            center_y_canvas = (y1 + y2) / 2.0
+
+            # Convert to Spine coords: origin = bottom-center of canvas, Y-up
+            spine_x = center_x_canvas - canvas_w / 2.0
+            spine_y = canvas_h - center_y_canvas
+
+            # Slot (draw order = array index, already sorted back-to-front)
+            slots.append({
+                "name": safe_name,
+                "bone": "root",
+                "attachment": safe_name,
+            })
+
+            # Skin attachment
+            attachments[safe_name] = {
+                safe_name: {
+                    "x": round(spine_x, 2),
+                    "y": round(spine_y, 2),
+                    "width": img_w,
+                    "height": img_h,
+                }
+            }
+
+        # Build Spine skeleton JSON
+        skeleton_data = {
+            "skeleton": {
+                "hash": "",
+                "spine": spine_version,
+                "x": round(-canvas_w / 2.0, 2),
+                "y": 0,
+                "width": canvas_w,
+                "height": canvas_h,
+                "images": "./images/",
+                "audio": "",
+            },
+            "bones": [{"name": "root"}],
+            "slots": slots,
+            "skins": [
+                {
+                    "name": "default",
+                    "attachments": attachments,
+                }
+            ],
+            "animations": {
+                "setup": {}
+            },
+        }
+
+        json_path = os.path.join(project_dir, f"{filename_prefix}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            _json.dump(skeleton_data, f, indent=2, ensure_ascii=False)
+
+        print(f"[SeeThrough] ExportSpine: {len(slots)} slots → {json_path}", flush=True)
+        return (json_path,)
 
 
 NODE_CLASS_MAPPINGS = {
@@ -941,6 +1420,9 @@ NODE_CLASS_MAPPINGS = {
     "SeeThrough_GenerateDepth": SeeThrough_GenerateDepth,
     "SeeThrough_PostProcess": SeeThrough_PostProcess,
     "SeeThrough_SavePSD": SeeThrough_SavePSD,
+    "SeeThrough_LayerRename": SeeThrough_LayerRename,
+    "SeeThrough_LayerFilter": SeeThrough_LayerFilter,
+    "SeeThrough_ExportSpine": SeeThrough_ExportSpine,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -951,4 +1433,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SeeThrough_GenerateDepth": "SeeThrough Generate Depth",
     "SeeThrough_PostProcess": "SeeThrough Post Process",
     "SeeThrough_SavePSD": "SeeThrough Save PSD",
+    "SeeThrough_LayerRename": "SeeThrough Layer Rename",
+    "SeeThrough_LayerFilter": "SeeThrough Layer Filter",
+    "SeeThrough_ExportSpine": "SeeThrough Export Spine",
 }
