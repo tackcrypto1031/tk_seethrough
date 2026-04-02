@@ -1,8 +1,8 @@
 {
   "id": "seethrough-basic-workflow",
   "revision": 0,
-  "last_node_id": 25,
-  "last_link_id": 31,
+  "last_node_id": 29,
+  "last_link_id": 32,
   "nodes": [
     {
       "id": 11,
@@ -16,7 +16,7 @@
         292
       ],
       "flags": {},
-      "order": 4,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
@@ -81,7 +81,7 @@
         269.2750061548311
       ],
       "flags": {},
-      "order": 5,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -107,66 +107,6 @@
       "bgcolor": "#353"
     },
     {
-      "id": 24,
-      "type": "3a1513cf-fbe0-4a5c-b3f6-25ea795d879a",
-      "pos": [
-        1077.1324864146086,
-        40.18054933737258
-      ],
-      "size": [
-        210,
-        98
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "layers",
-          "type": "SEETHROUGH_LAYERS",
-          "link": 28
-        }
-      ],
-      "outputs": [
-        {
-          "name": "layerdiff_model",
-          "type": "SEETHROUGH_LAYERDIFF_MODEL",
-          "links": [
-            29
-          ]
-        },
-        {
-          "name": "parts",
-          "type": "SEETHROUGH_PARTS",
-          "links": [
-            30
-          ]
-        },
-        {
-          "name": "preview",
-          "type": "IMAGE",
-          "links": [
-            31
-          ]
-        }
-      ],
-      "properties": {
-        "proxyWidgets": [
-          [
-            "19",
-            "seed"
-          ]
-        ],
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": []
-    },
-    {
       "id": 8,
       "type": "PreviewImage",
       "pos": [
@@ -178,7 +118,7 @@
         246.00000000000003
       ],
       "flags": {},
-      "order": 7,
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
@@ -202,43 +142,6 @@
       "widgets_values": []
     },
     {
-      "id": 13,
-      "type": "Fast Groups Bypasser (rgthree)",
-      "pos": [
-        -48.57933104752856,
-        -87.66918695648958
-      ],
-      "size": [
-        247.2955078125,
-        60
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "OPT_CONNECTION",
-          "type": "*",
-          "links": null
-        }
-      ],
-      "properties": {
-        "matchColors": "",
-        "matchTitle": "",
-        "showNav": true,
-        "showAllGraphs": true,
-        "sort": "position",
-        "customSortAlphabet": "",
-        "toggleRestriction": "default",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      }
-    },
-    {
       "id": 1,
       "type": "LoadImage",
       "pos": [
@@ -250,7 +153,7 @@
         340
       ],
       "flags": {},
-      "order": 1,
+      "order": 0,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -283,6 +186,87 @@
       ]
     },
     {
+      "id": 27,
+      "type": "SeeThrough_ExportSpine",
+      "pos": [
+        1656.521062366945,
+        89.01823320195241
+      ],
+      "size": [
+        270,
+        106
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "parts",
+          "type": "SEETHROUGH_PARTS",
+          "link": 32
+        }
+      ],
+      "outputs": [
+        {
+          "name": "spine_json_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "aux_id": "tackcrypto1031/tk_seethrough",
+        "ver": "bbe64e75f48686088b9db1b0941831de8fd0ca79",
+        "Node name for S&R": "SeeThrough_ExportSpine",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      },
+      "widgets_values": [
+        "seethrough_spine",
+        "4.2.28",
+        ""
+      ]
+    },
+    {
+      "id": 13,
+      "type": "Fast Groups Bypasser (rgthree)",
+      "pos": [
+        -41.66812114566246,
+        -136.04775118072178
+      ],
+      "size": [
+        247.2955078125,
+        106
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "OPT_CONNECTION",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "properties": {
+        "matchColors": "",
+        "matchTitle": "",
+        "showNav": true,
+        "showAllGraphs": true,
+        "sort": "position",
+        "customSortAlphabet": "",
+        "toggleRestriction": "default",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      }
+    },
+    {
       "id": 23,
       "type": "SeeThrough_GenerateLayers_Custom",
       "pos": [
@@ -291,10 +275,10 @@
       ],
       "size": [
         369.10184794826625,
-        195.46719717914493
+        222
       ],
       "flags": {},
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
@@ -323,6 +307,8 @@
         }
       ],
       "properties": {
+        "aux_id": "tackcrypto1031/tk_seethrough",
+        "ver": "a55dbef1367d827865c7fffb0951e6fcf818a42c",
         "Node name for S&R": "SeeThrough_GenerateLayers_Custom",
         "ue_properties": {
           "widget_ue_connectable": {},
@@ -331,11 +317,121 @@
         }
       },
       "widgets_values": [
-        4251219510,
+        3643003174,
         "randomize",
         1280,
         30,
-        false
+        true,
+        3,
+        0.01
+      ]
+    },
+    {
+      "id": 24,
+      "type": "3a1513cf-fbe0-4a5c-b3f6-25ea795d879a",
+      "pos": [
+        1077.1324864146086,
+        40.18054933737258
+      ],
+      "size": [
+        210,
+        98
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "layers",
+          "type": "SEETHROUGH_LAYERS",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "layerdiff_model",
+          "type": "SEETHROUGH_LAYERDIFF_MODEL",
+          "links": [
+            29
+          ]
+        },
+        {
+          "name": "parts",
+          "type": "SEETHROUGH_PARTS",
+          "links": [
+            30,
+            32
+          ]
+        },
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": [
+            31
+          ]
+        }
+      ],
+      "properties": {
+        "proxyWidgets": [
+          [
+            "19",
+            "seed"
+          ]
+        ],
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 7,
+      "type": "SeeThrough_SavePSD",
+      "pos": [
+        1308.3136670065714,
+        40.47093253596652
+      ],
+      "size": [
+        315,
+        163.140625
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "parts",
+          "type": "SEETHROUGH_PARTS",
+          "link": 30
+        }
+      ],
+      "outputs": [
+        {
+          "name": "info_file",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "aux_id": "jtydhr88/ComfyUI-See-through",
+        "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+        "Node name for S&R": "SeeThrough_SavePSD",
+        "cnr_id": "comfyui-see-through",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "seethrough",
+        "Download PSD",
+        "Download Depth PSD",
+        "Download All Runs PSD"
       ]
     },
     {
@@ -362,62 +458,17 @@
         }
       },
       "widgets_values": [
-        "點 Download PSD下載"
+        "點 Download PSD下載\n\nAll run就是這次所有輪次的圖層包在同一個PSD裡面 (會分群組)"
       ],
       "color": "#432",
       "bgcolor": "#653"
     },
     {
-      "id": 7,
-      "type": "SeeThrough_SavePSD",
-      "pos": [
-        1308.3136670065714,
-        40.47093253596652
-      ],
-      "size": [
-        315,
-        163.140625
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "parts",
-          "type": "SEETHROUGH_PARTS",
-          "link": 30
-        }
-      ],
-      "outputs": [
-        {
-          "name": "info_file",
-          "type": "STRING",
-          "links": []
-        }
-      ],
-      "properties": {
-        "aux_id": "jtydhr88/ComfyUI-See-through",
-        "Node name for S&R": "SeeThrough_SavePSD",
-        "cnr_id": "comfyui-see-through",
-        "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "seethrough",
-        "Download PSD",
-        "Download Depth PSD"
-      ]
-    },
-    {
-      "id": 25,
+      "id": 28,
       "type": "Note",
       "pos": [
-        758.4981649593434,
-        -186.456504113191
+        1676.3081560287098,
+        -185.07424947799524
       ],
       "size": [
         225.90637736103372,
@@ -436,7 +487,36 @@
         }
       },
       "widgets_values": [
-        "enable_head_detail\n如果關掉就不拆頭部五官那些,可加速"
+        "直接匯出可以導入Spine的Json , 會在output資料夾\n\n新版SPINE有可以導入PSD,預設關閉,你有需要或是SPINE的免費版不能導入PSD再開"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 25,
+      "type": "Note",
+      "pos": [
+        717.4455155008869,
+        -201.66120069805845
+      ],
+      "size": [
+        312.5730817733304,
+        164.91232639383276
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "enable_head_detail\n如果關掉就不拆頭部五官那些,可加速\n\nauto_fill打開會自動偵測缺失圖層,並自動根原圖做對比,選擇更接近原圖的圖層做選擇,避免第一輪拆的圖層是醜的,第二輪是好看的,可是只偵測到第一輪\"有圖層\"而不是\"正確圖層\"這件事\n最多5層,若提前滿足條件 (補滿24層&系統判斷跟原圖接近) 會提前結束,不會跑滿5層"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -498,6 +578,14 @@
       8,
       0,
       "IMAGE"
+    ],
+    [
+      32,
+      24,
+      1,
+      27,
+      0,
+      "SEETHROUGH_PARTS"
     ]
   ],
   "groups": [
@@ -513,6 +601,19 @@
       "color": "#3f789e",
       "font_size": 24,
       "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "匯出Spine Json",
+      "bounding": [
+        1646.521062366945,
+        15.41823320195241,
+        296.22009840279634,
+        196.70049201398226
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
     }
   ],
   "definitions": {
@@ -521,9 +622,9 @@
         "id": "3a1513cf-fbe0-4a5c-b3f6-25ea795d879a",
         "version": 1,
         "state": {
-          "lastGroupId": 1,
-          "lastNodeId": 25,
-          "lastLinkId": 31,
+          "lastGroupId": 2,
+          "lastNodeId": 29,
+          "lastLinkId": 32,
           "lastRerouteId": 0
         },
         "revision": 0,
@@ -557,8 +658,8 @@
             ],
             "localized_name": "layers",
             "pos": [
-              55,
-              20
+              1043.156578541161,
+              184.26252635067948
             ]
           }
         ],
@@ -572,8 +673,8 @@
             ],
             "localized_name": "layerdiff_model",
             "pos": [
-              20,
-              20
+              1545.6824903907147,
+              164.26252635067948
             ]
           },
           {
@@ -585,8 +686,8 @@
             ],
             "localized_name": "parts",
             "pos": [
-              20,
-              40
+              1545.6824903907147,
+              184.26252635067948
             ]
           },
           {
@@ -598,8 +699,8 @@
             ],
             "localized_name": "preview",
             "pos": [
-              20,
-              60
+              1545.6824903907147,
+              204.26252635067948
             ]
           }
         ],
@@ -632,14 +733,14 @@
             ],
             "properties": {
               "aux_id": "jtydhr88/ComfyUI-See-through",
+              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+              "Node name for S&R": "SeeThrough_LoadLayerDiffModel",
+              "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
                 "input_ue_unconnectable": {}
-              },
-              "Node name for S&R": "SeeThrough_LoadLayerDiffModel",
-              "cnr_id": "comfyui-see-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8"
+              }
             },
             "widgets_values": [
               "layerdifforg/seethroughv0.0.2_layerdiff3d",
@@ -674,14 +775,14 @@
             ],
             "properties": {
               "aux_id": "jtydhr88/ComfyUI-See-through",
+              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+              "Node name for S&R": "SeeThrough_LoadDepthModel",
+              "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
                 "input_ue_unconnectable": {}
-              },
-              "Node name for S&R": "SeeThrough_LoadDepthModel",
-              "cnr_id": "comfyui-see-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8"
+              }
             },
             "widgets_values": [
               "24yearsold/seethroughv0.0.1_marigold"
@@ -733,17 +834,17 @@
             ],
             "properties": {
               "aux_id": "jtydhr88/ComfyUI-See-through",
+              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+              "Node name for S&R": "SeeThrough_GenerateDepth",
+              "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
                 "input_ue_unconnectable": {}
-              },
-              "Node name for S&R": "SeeThrough_GenerateDepth",
-              "cnr_id": "comfyui-see-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8"
+              }
             },
             "widgets_values": [
-              1815672839,
+              3250080091,
               "randomize"
             ]
           },
@@ -789,14 +890,14 @@
             ],
             "properties": {
               "aux_id": "jtydhr88/ComfyUI-See-through",
+              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+              "Node name for S&R": "SeeThrough_PostProcess",
+              "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
                 "input_ue_unconnectable": {}
-              },
-              "Node name for S&R": "SeeThrough_PostProcess",
-              "cnr_id": "comfyui-see-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8"
+              }
             },
             "widgets_values": [
               true,
@@ -857,20 +958,14 @@
         ],
         "extra": {
           "ue_links": [],
-          "links_added_by_ue": []
+          "links_added_by_ue": [],
+          "workflowRendererVersion": "LG"
         }
       }
     ]
   },
   "config": {},
   "extra": {
-    "ds": {
-      "scale": 0.7972024500000036,
-      "offset": [
-        994.092161294696,
-        569.8552844394864
-      ]
-    },
     "frontendVersion": "1.39.19",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
@@ -878,7 +973,14 @@
     "VHS_KeepIntermediate": true,
     "workflowRendererVersion": "LG",
     "ue_links": [],
-    "links_added_by_ue": []
+    "links_added_by_ue": [],
+    "ds": {
+      "scale": 0.8769226950000045,
+      "offset": [
+        254.43161836955113,
+        453.85676983974514
+      ]
+    }
   },
   "version": 0.4
 }
