@@ -38,6 +38,7 @@ async function ensureAgPsdLoaded() {
             document.head.appendChild(script);
         } else {
             const variants = [
+                "tk_seethrough",
                 "ComfyUI-See-through",
                 "comfyui-see-through",
                 "ComfyUI-see-through",
