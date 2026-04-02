@@ -20,4 +20,4 @@ except Exception as e:
     NODE_DISPLAY_NAME_MAPPINGS = {}
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
-__version__ = "0.1.0"
+__version__ = "0.2.2"

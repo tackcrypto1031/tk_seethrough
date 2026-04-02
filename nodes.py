@@ -13,6 +13,14 @@ import folder_paths
 import comfy.model_management as mm
 import comfy.utils
 
+
+def _log_vram(label):
+    """Log current GPU VRAM usage for profiling."""
+    if torch.cuda.is_available():
+        alloc = torch.cuda.memory_allocated() / (1024 ** 3)
+        reserved = torch.cuda.memory_reserved() / (1024 ** 3)
+        print(f"[SeeThrough VRAM] {label}: allocated={alloc:.2f}GB, reserved={reserved:.2f}GB", flush=True)
+
 print("[SeeThrough] nodes.py: comfy imports OK", flush=True)
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -270,7 +278,6 @@ class SeeThrough_LoadLayerDiffModel:
     CATEGORY = "SeeThrough"
 
     def load_model(self, model, vae_ckpt="", unet_ckpt=""):
-        device = mm.get_torch_device()
         dtype = torch.bfloat16
         pretrained = _resolve_model_path(model)
 
@@ -300,13 +307,14 @@ class SeeThrough_LoadLayerDiffModel:
             if td_sd:
                 pipeline.trans_vae.decoder.load_state_dict(td_sd)
 
-        pipeline.vae.to(dtype=dtype, device=device)
-        pipeline.trans_vae.to(dtype=dtype, device=device)
-        pipeline.unet.to(dtype=dtype, device=device)
-        pipeline.text_encoder.to(dtype=dtype, device=device)
-        pipeline.text_encoder_2.to(dtype=dtype, device=device)
+        pipeline.vae.to(dtype=dtype)
+        pipeline.trans_vae.to(dtype=dtype)
+        pipeline.unet.to(dtype=dtype)
+        pipeline.text_encoder.to(dtype=dtype)
+        pipeline.text_encoder_2.to(dtype=dtype)
 
-        print("[SeeThrough] LayerDiff model loaded successfully", flush=True)
+        _log_vram("LayerDiff model loaded (CPU)")
+        print("[SeeThrough] LayerDiff model loaded to CPU (will move to GPU on demand)", flush=True)
         return (pipeline,)
 
 class SeeThrough_LoadDepthModel:
@@ -327,16 +335,16 @@ class SeeThrough_LoadDepthModel:
     CATEGORY = "SeeThrough"
 
     def load_model(self, model):
-        device = mm.get_torch_device()
         dtype = torch.bfloat16
         pretrained = _resolve_model_path(model)
 
         print(f"[SeeThrough] Loading Marigold depth model from: {pretrained}", flush=True)
         unet = UNetFrameConditionModel.from_pretrained(pretrained, subfolder="unet")
         pipeline = MarigoldDepthPipeline.from_pretrained(pretrained, unet=unet)
-        pipeline.to(device=device, dtype=dtype)
+        pipeline.to(dtype=dtype)
 
-        print("[SeeThrough] Depth model loaded successfully", flush=True)
+        _log_vram("Depth model loaded (CPU)")
+        print("[SeeThrough] Depth model loaded to CPU (will move to GPU on demand)", flush=True)
         return (pipeline,)
 
 class SeeThrough_GenerateLayers:
@@ -359,6 +367,8 @@ class SeeThrough_GenerateLayers:
 
     def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30):
         pipeline = layerdiff_model
+        device = mm.get_torch_device()
+        offload = torch.device("cpu")
         seed_everything(seed)
 
         # Convert ComfyUI IMAGE to numpy RGBA
@@ -369,34 +379,61 @@ class SeeThrough_GenerateLayers:
 
         fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
         scale = pad_size[0] / resolution
-        rng = torch.Generator(device=pipeline.unet.device).manual_seed(seed)
 
         tag_version = pipeline.unet.get_tag_version()
         layer_dict = {}
 
         print(f"[SeeThrough] GenerateLayers: tag_version={tag_version}, resolution={resolution}, steps={num_inference_steps}", flush=True)
+        _log_vram("GenerateLayers start")
+
+        # Encode text prompts on GPU, then offload text encoders
+        pipeline.text_encoder.to(device)
+        pipeline.text_encoder_2.to(device)
+        _log_vram("Text encoders loaded to GPU")
+
+        if tag_version == "v2":
+            prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
+        elif tag_version == "v3":
+            body_tags = VALID_BODY_PARTS_V3_BODY
+            head_tags = VALID_BODY_PARTS_V3_HEAD
+            body_embeds, body_pooled = pipeline.encode_cropped_prompt_77tokens(body_tags)
+            head_embeds, head_pooled = pipeline.encode_cropped_prompt_77tokens(head_tags)
+        else:
+            raise ValueError(f"Unknown tag version: {tag_version}")
+
+        pipeline.text_encoder.to(offload)
+        pipeline.text_encoder_2.to(offload)
+        _log_vram("Text encoders offloaded to CPU")
+
+        # Load UNet+VAE to GPU for diffusion
+        pipeline.unet.to(device)
+        pipeline.vae.to(device)
+        pipeline.trans_vae.to(device)
+        mm.soft_empty_cache()
+        _log_vram("UNet+VAE on GPU, ready for diffusion")
+
+        rng = torch.Generator(device=device).manual_seed(seed)
 
         if tag_version == "v2":
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0, prompt=VALID_BODY_PARTS_V2,
-                           negative_prompt="", fullpage=fullpage)
+                           generator=rng, guidance_scale=1.0,
+                           prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+                           fullpage=fullpage)
+            _log_vram("v2 diffusion complete")
             for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
                 layer_dict[tag] = rst
 
         elif tag_version == "v3":
-            body_tags = ["front hair", "back hair", "head", "neck", "neckwear",
-                         "topwear", "handwear", "bottomwear", "legwear", "footwear",
-                         "tail", "wings", "objects"]
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0, prompt=body_tags,
-                           negative_prompt="", fullpage=fullpage, group_index=0)
+                           generator=rng, guidance_scale=1.0,
+                           prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
+                           fullpage=fullpage, group_index=0)
+            _log_vram("v3 body diffusion complete")
             for rst, tag in zip(out.images, body_tags):
                 layer_dict[tag] = rst
 
             # Head-level generation
             head_img = out.images[2]
-            head_tags = ["headwear", "face", "irides", "eyebrow", "eyewhite",
-                         "eyelash", "eyewear", "ears", "earwear", "nose", "mouth"]
             nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
             if nz is not None:
                 hx0, hy0, hw, hh = cv2.boundingRect(nz)
@@ -409,8 +446,10 @@ class SeeThrough_GenerateLayers:
                 input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
 
                 out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                               generator=rng, guidance_scale=1.0, prompt=head_tags,
-                               negative_prompt="", fullpage=input_head, group_index=1)
+                               generator=rng, guidance_scale=1.0,
+                               prompt_embeds=head_embeds, pooled_prompt_embeds=head_pooled,
+                               fullpage=input_head, group_index=1)
+                _log_vram("v3 head diffusion complete")
 
                 canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
                 coords = np.array([head_pad_pos[1], head_pad_pos[1] + ih, head_pad_pos[0], head_pad_pos[0] + iw])
@@ -422,10 +461,14 @@ class SeeThrough_GenerateLayers:
                     full = canvas.copy()
                     full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
                     layer_dict[tag] = full
-        else:
-            raise ValueError(f"Unknown tag version: {tag_version}")
 
-        print(f"[SeeThrough] GenerateLayers complete: {len(layer_dict)} layers: {list(layer_dict.keys())}", flush=True)
+        # Offload pipeline back to CPU
+        pipeline.unet.to(offload)
+        pipeline.vae.to(offload)
+        pipeline.trans_vae.to(offload)
+        mm.soft_empty_cache()
+        _log_vram("GenerateLayers offloaded to CPU")
+        print(f"[SeeThrough] GenerateLayers complete: {len(layer_dict)} layers, pipeline offloaded to CPU", flush=True)
 
         layers_data = SeeThrough_LayersData(layer_dict, fullpage, input_img, resolution, pad_size, pad_pos)
 
@@ -461,6 +504,8 @@ class SeeThrough_GenerateLayers_Custom:
 
     def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, enable_head_detail=True):
         pipeline = layerdiff_model
+        device = mm.get_torch_device()
+        offload = torch.device("cpu")
         seed_everything(seed)
 
         # Convert ComfyUI IMAGE to numpy RGBA
@@ -471,34 +516,65 @@ class SeeThrough_GenerateLayers_Custom:
 
         fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
         scale = pad_size[0] / resolution
-        rng = torch.Generator(device=pipeline.unet.device).manual_seed(seed)
 
         tag_version = pipeline.unet.get_tag_version()
         layer_dict = {}
 
         print(f"[SeeThrough] GenerateLayers_Custom: tag_version={tag_version}, resolution={resolution}, "
               f"steps={num_inference_steps}, head_detail={enable_head_detail}", flush=True)
+        _log_vram("GenerateLayers_Custom start")
+
+        # Encode text prompts on GPU, then offload text encoders
+        pipeline.text_encoder.to(device)
+        pipeline.text_encoder_2.to(device)
+        _log_vram("Text encoders loaded to GPU")
+
+        if tag_version == "v2":
+            prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
+        elif tag_version == "v3":
+            body_tags = VALID_BODY_PARTS_V3_BODY
+            head_tags = VALID_BODY_PARTS_V3_HEAD
+            body_embeds, body_pooled = pipeline.encode_cropped_prompt_77tokens(body_tags)
+            if enable_head_detail:
+                head_embeds, head_pooled = pipeline.encode_cropped_prompt_77tokens(head_tags)
+        else:
+            raise ValueError(f"Unknown tag version: {tag_version}")
+
+        pipeline.text_encoder.to(offload)
+        pipeline.text_encoder_2.to(offload)
+        _log_vram("Text encoders offloaded to CPU")
+
+        # Load UNet+VAE to GPU for diffusion
+        pipeline.unet.to(device)
+        pipeline.vae.to(device)
+        pipeline.trans_vae.to(device)
+        mm.soft_empty_cache()
+        _log_vram("UNet+VAE on GPU, ready for diffusion")
+
+        rng = torch.Generator(device=device).manual_seed(seed)
 
         if tag_version == "v2":
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0, prompt=VALID_BODY_PARTS_V2,
-                           negative_prompt="", fullpage=fullpage)
+                           generator=rng, guidance_scale=1.0,
+                           prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+                           fullpage=fullpage)
+            _log_vram("v2 diffusion complete")
             for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
                 layer_dict[tag] = rst
 
         elif tag_version == "v3":
             # Stage 1: Body (always runs)
-            body_tags = VALID_BODY_PARTS_V3_BODY
             out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0, prompt=body_tags,
-                           negative_prompt="", fullpage=fullpage, group_index=0)
+                           generator=rng, guidance_scale=1.0,
+                           prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
+                           fullpage=fullpage, group_index=0)
+            _log_vram("v3 body diffusion complete")
             for rst, tag in zip(out.images, body_tags):
                 layer_dict[tag] = rst
 
             # Stage 2: Head detail (skipped if enable_head_detail is off)
             if enable_head_detail and "head" in layer_dict:
                 head_img = layer_dict["head"]
-                head_tags = VALID_BODY_PARTS_V3_HEAD
                 nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
                 if nz is not None:
                     hx0, hy0, hw, hh = cv2.boundingRect(nz)
@@ -511,8 +587,10 @@ class SeeThrough_GenerateLayers_Custom:
                     input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
 
                     out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                                   generator=rng, guidance_scale=1.0, prompt=head_tags,
-                                   negative_prompt="", fullpage=input_head, group_index=1)
+                                   generator=rng, guidance_scale=1.0,
+                                   prompt_embeds=head_embeds, pooled_prompt_embeds=head_pooled,
+                                   fullpage=input_head, group_index=1)
+                    _log_vram("v3 head diffusion complete")
 
                     canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
                     coords = np.array([head_pad_pos[1], head_pad_pos[1] + ih, head_pad_pos[0], head_pad_pos[0] + iw])
@@ -524,10 +602,14 @@ class SeeThrough_GenerateLayers_Custom:
                         full = canvas.copy()
                         full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
                         layer_dict[tag] = full
-        else:
-            raise ValueError(f"Unknown tag version: {tag_version}")
 
-        print(f"[SeeThrough] GenerateLayers_Custom complete: {len(layer_dict)} layers: {list(layer_dict.keys())}", flush=True)
+        # Offload pipeline back to CPU
+        pipeline.unet.to(offload)
+        pipeline.vae.to(offload)
+        pipeline.trans_vae.to(offload)
+        mm.soft_empty_cache()
+        _log_vram("GenerateLayers_Custom offloaded to CPU")
+        print(f"[SeeThrough] GenerateLayers_Custom complete: {len(layer_dict)} layers, pipeline offloaded to CPU", flush=True)
 
         layers_data = SeeThrough_LayersData(layer_dict, fullpage, input_img, resolution, pad_size, pad_pos)
 
@@ -562,8 +644,11 @@ class SeeThrough_GenerateDepth:
         fullpage = layers.fullpage
         resolution = layers.resolution
         marigold = depth_model
+        device = mm.get_torch_device()
+        offload = torch.device("cpu")
 
         print("[SeeThrough] GenerateDepth: running Marigold...", flush=True)
+        _log_vram("GenerateDepth start")
 
         empty_array = np.zeros((resolution, resolution, 4), dtype=np.uint8)
         blended_alpha = np.zeros((resolution, resolution), dtype=np.float32)
@@ -602,9 +687,21 @@ class SeeThrough_GenerateDepth:
         fullpage_for_depth[..., -1] = blended_alpha
         img_list.append(fullpage_for_depth)
 
+        # Move Marigold to GPU for inference
+        marigold.to(device=device)
+        mm.soft_empty_cache()
+        _log_vram("Marigold on GPU")
+        print("[SeeThrough] Marigold pipeline moved to GPU", flush=True)
+
         seed_everything(seed)
         pipe_out = marigold(color_map=None, show_progress_bar=False, img_list=img_list)
+        _log_vram("Marigold inference complete")
         depth_pred = pipe_out.depth_tensor.to(device="cpu", dtype=torch.float32).numpy()
+
+        # Offload Marigold back to CPU
+        marigold.to(device=offload)
+        mm.soft_empty_cache()
+        _log_vram("GenerateDepth offloaded to CPU")
 
         depth_dict = {}
         for ii, tag in enumerate(VALID_BODY_PARTS_V2):
@@ -625,7 +722,7 @@ class SeeThrough_GenerateDepth:
             else:
                 depth_dict[tag] = np.clip(depth, 0, 1).astype(np.float32)
 
-        print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps", flush=True)
+        print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps, Marigold offloaded to CPU", flush=True)
 
         result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution)
 

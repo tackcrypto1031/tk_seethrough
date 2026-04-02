@@ -428,12 +428,22 @@ class MarigoldDepthPipeline(DiffusionPipeline):
             pred_uncert = None
 
         # Resize back to original resolution
+        # Use F.interpolate instead of torchvision resize for compatibility
+        # with torchvision >= 0.23 which has stricter InterpolationMode checks
         if match_input_res:
-            final_pred = resize(
+            _interp_modes = {
+                InterpolationMode.BILINEAR: "bilinear",
+                InterpolationMode.BICUBIC: "bicubic",
+                InterpolationMode.NEAREST: "nearest",
+                InterpolationMode.NEAREST_EXACT: "nearest-exact",
+            }
+            _mode = _interp_modes.get(resample_method, "bilinear")
+            _align_corners = False if _mode in ("bilinear", "bicubic") else None
+            final_pred = torch.nn.functional.interpolate(
                 final_pred,
-                input_size[-2:],
-                interpolation=resample_method,
-                antialias=True,
+                size=input_size[-2:],
+                mode=_mode,
+                align_corners=_align_corners,
             )
 
         # Convert to numpy
