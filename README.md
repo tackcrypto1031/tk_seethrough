@@ -1,6 +1,6 @@
 # ComfyUI-See-through (Custom Fork)
 
-![Preview](workflows/img_1.png)
+![Preview](https://raw.githubusercontent.com/tackcrypto1031/tk_seethrough/main/workflows/sample.png)
 
 A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through) by [@jtydhr88](https://github.com/jtydhr88), adding a custom node with the option to skip the head detail inference stage for faster processing.
 
