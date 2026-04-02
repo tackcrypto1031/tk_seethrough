@@ -8,7 +8,7 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
-### v0.3.0 — Spine Export, Auto-Fill & All Runs PSD
+### v1.2 — Spine Export, Auto-Fill & All Runs PSD
 
 - **Spine Export Nodes** — New `Layer Rename`, `Layer Filter`, and `Export Spine` nodes for Spine 2D animation preparation.
 - **Auto-Fill Missing Layers** — Enable `auto_fill` on GenerateLayers (Custom) to automatically re-run inference up to 5 times, filling missing layers and upgrading low-quality layers by comparing against the original image.
@@ -58,7 +58,7 @@ Models are loaded to GPU only once across all runs — the overhead is only the 
 
 > **Note:** For v2 models, this toggle has no effect since v2 uses a single-stage inference.
 
-### v0.2.2 — Synced with Upstream
+### v1.1 — Synced with Upstream
 
 This fork has been synced with [upstream v0.2.2](https://github.com/jtydhr88/ComfyUI-See-through), incorporating the following improvements:
 

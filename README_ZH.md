@@ -8,7 +8,7 @@
 
 ## 本 Fork 新增功能
 
-### v0.3.0 — Spine 匯出、自動補圖 & 全輪次 PSD
+### v1.2 — Spine 匯出、自動補圖 & 全輪次 PSD
 
 - **Spine 匯出節點** — 新增 `Layer Rename`、`Layer Filter`、`Export Spine` 節點，用於 Spine 2D 動畫前置拆圖。
 - **自動補齊缺失圖層** — 在 GenerateLayers (Custom) 開啟 `auto_fill`，自動重跑推理最多 5 次，補齊缺失圖層並透過原圖相似度比對升級品質差的圖層。
@@ -58,7 +58,7 @@ v3 See-through 模型分**兩個推理階段**執行：
 
 > **注意：** v2 模型為單階段推理，此開關無效果。
 
-### v0.2.2 — 同步上游更新
+### v1.1 — 同步上游更新
 
 本 Fork 已同步 [上游 v0.2.2](https://github.com/jtydhr88/ComfyUI-See-through) 的改進：
 
