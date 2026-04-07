@@ -1,6 +1,6 @@
 [project]
 name = "tk-comfyui-see-through"
-description = "ComfyUI nodes for See-through: Anime Layer Decomposition from a Single Image"
+description = "A fork of ComfyUI-See-through by @jtydhr88, adding a custom node with the option to skip the head detail inference stage for faster processing."
 version = "1.0.0"
 license = "MIT"
 requires-python = ">=3.10"

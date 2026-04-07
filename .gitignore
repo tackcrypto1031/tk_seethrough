@@ -36,3 +36,4 @@ node.zip
 # Local config & runtime state
 .omc/
 .claude/settings.local.json
+docs/
