@@ -28,7 +28,6 @@
 # If you find Marigold useful, we kindly ask you to cite our papers.
 # --------------------------------------------------------------------------
 
-import matplotlib
 import numpy as np
 import torch
 from torchvision.transforms import InterpolationMode
@@ -52,6 +51,7 @@ def colorize_depth_maps(
         depth = depth[np.newaxis, :, :]
 
     # colorize
+    import matplotlib
     cm = matplotlib.colormaps[cmap]
     depth = ((depth - min_depth) / (max_depth - min_depth)).clip(0, 1)
     img_colored_np = cm(depth, bytes=False)[:, :, :, 0:3]  # value from 0 to 1

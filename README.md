@@ -8,6 +8,11 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
+### v1.2.3 — Bug Fixes
+
+- **Fix: PSD download fails with "Failed to load ag-psd bundle from any path"** — ComfyUI's new frontend loads extensions via ES module `import()`, causing `document.currentScript` to be `null`. Replaced with `import.meta.url` for reliable bundle path resolution regardless of install folder name. ([#1](https://github.com/tackcrypto1031/tk_seethrough/issues/1))
+- **Fix: Nodes fail to load in fresh environments** — The upstream Marigold module imports `matplotlib` at module level for an optional visualization function, causing `ModuleNotFoundError` on environments without `matplotlib`. Changed to lazy import so nodes load without requiring `matplotlib`.
+
 ### v1.2 — Spine Export, Auto-Fill & All Runs PSD
 
 - **Spine Export Nodes** — New `Layer Rename`, `Layer Filter`, and `Export Spine` nodes for Spine 2D animation preparation.

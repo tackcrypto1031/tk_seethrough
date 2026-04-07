@@ -8,6 +8,11 @@
 
 ## 本 Fork 新增功能
 
+### v1.2.3 — 問題修復
+
+- **修復：PSD 下載失敗「Failed to load ag-psd bundle from any path」** — ComfyUI 新版前端以 ES module `import()` 載入擴充套件，導致 `document.currentScript` 為 `null`。改用 `import.meta.url` 可靠地解析 bundle 路徑，不受安裝資料夾名稱影響。（[#1](https://github.com/tackcrypto1031/tk_seethrough/issues/1)）
+- **修復：全新環境下節點無法載入** — 上游 Marigold 模組在頂層匯入 `matplotlib`（僅用於可視化功能），導致未安裝 `matplotlib` 的環境出現 `ModuleNotFoundError`。改為延遲匯入，節點載入不再依賴 `matplotlib`。
+
 ### v1.2 — Spine 匯出、自動補圖 & 全輪次 PSD
 
 - **Spine 匯出節點** — 新增 `Layer Rename`、`Layer Filter`、`Export Spine` 節點，用於 Spine 2D 動畫前置拆圖。
