@@ -16,5 +16,5 @@ Repository = "https://github.com/tackcrypto1031/tk_seethrough"
 
 [tool.comfy]
 PublisherId = "tackcrypto1031"
-DisplayName = "tackbear"
+DisplayName = "TK ComfyUI See Through"
 Icon = ""
