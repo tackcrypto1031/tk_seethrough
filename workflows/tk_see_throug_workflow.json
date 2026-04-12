@@ -93,9 +93,9 @@
       "outputs": [],
       "title": "去除背景預覽",
       "properties": {
+        "Node name for S&R": "PreviewImage",
         "cnr_id": "comfy-core",
         "ver": "0.16.4",
-        "Node name for S&R": "PreviewImage",
         "ue_properties": {
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {},
@@ -130,9 +130,9 @@
       "outputs": [],
       "title": "拆圖預覽",
       "properties": {
+        "Node name for S&R": "PreviewImage",
         "cnr_id": "comfy-core",
         "ver": "0.16.4",
-        "Node name for S&R": "PreviewImage",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.5.2",
@@ -171,9 +171,9 @@
         }
       ],
       "properties": {
+        "Node name for S&R": "LoadImage",
         "cnr_id": "comfy-core",
         "ver": "0.16.4",
-        "Node name for S&R": "LoadImage",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.5.2",
@@ -214,9 +214,9 @@
         }
       ],
       "properties": {
+        "Node name for S&R": "SeeThrough_ExportSpine",
         "aux_id": "tackcrypto1031/tk_seethrough",
         "ver": "bbe64e75f48686088b9db1b0941831de8fd0ca79",
-        "Node name for S&R": "SeeThrough_ExportSpine",
         "ue_properties": {
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {},
@@ -307,9 +307,9 @@
         }
       ],
       "properties": {
+        "Node name for S&R": "SeeThrough_GenerateLayers_Custom",
         "aux_id": "tackcrypto1031/tk_seethrough",
         "ver": "a55dbef1367d827865c7fffb0951e6fcf818a42c",
-        "Node name for S&R": "SeeThrough_GenerateLayers_Custom",
         "ue_properties": {
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {},
@@ -325,68 +325,6 @@
         3,
         0.01
       ]
-    },
-    {
-      "id": 24,
-      "type": "3a1513cf-fbe0-4a5c-b3f6-25ea795d879a",
-      "pos": [
-        1077.1324864146086,
-        40.18054933737258
-      ],
-      "size": [
-        210,
-        98
-      ],
-      "flags": {},
-      "order": 10,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "layers",
-          "type": "SEETHROUGH_LAYERS",
-          "link": 28
-        }
-      ],
-      "outputs": [
-        {
-          "name": "layerdiff_model",
-          "type": "SEETHROUGH_LAYERDIFF_MODEL",
-          "links": [
-            29
-          ]
-        },
-        {
-          "name": "parts",
-          "type": "SEETHROUGH_PARTS",
-          "links": [
-            30,
-            32
-          ]
-        },
-        {
-          "name": "preview",
-          "type": "IMAGE",
-          "links": [
-            31
-          ]
-        }
-      ],
-      "properties": {
-        "proxyWidgets": [
-          [
-            "19",
-            "seed"
-          ]
-        ],
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": []
     },
     {
       "id": 7,
@@ -417,9 +355,9 @@
         }
       ],
       "properties": {
+        "Node name for S&R": "SeeThrough_SavePSD",
         "aux_id": "jtydhr88/ComfyUI-See-through",
         "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-        "Node name for S&R": "SeeThrough_SavePSD",
         "cnr_id": "comfyui-see-through",
         "ue_properties": {
           "widget_ue_connectable": {},
@@ -520,6 +458,68 @@
       ],
       "color": "#432",
       "bgcolor": "#653"
+    },
+    {
+      "id": 24,
+      "type": "3a1513cf-fbe0-4a5c-b3f6-25ea795d879a",
+      "pos": [
+        1077.1324864146086,
+        40.18054933737258
+      ],
+      "size": [
+        210,
+        98
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "layers",
+          "type": "SEETHROUGH_LAYERS",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "layerdiff_model",
+          "type": "SEETHROUGH_LAYERDIFF_MODEL",
+          "links": [
+            29
+          ]
+        },
+        {
+          "name": "parts",
+          "type": "SEETHROUGH_PARTS",
+          "links": [
+            30,
+            32
+          ]
+        },
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": [
+            31
+          ]
+        }
+      ],
+      "properties": {
+        "proxyWidgets": [
+          [
+            "19",
+            "seed"
+          ]
+        ],
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      },
+      "widgets_values": []
     }
   ],
   "links": [
@@ -732,9 +732,9 @@
               }
             ],
             "properties": {
+              "Node name for S&R": "SeeThrough_LoadLayerDiffModel",
               "aux_id": "jtydhr88/ComfyUI-See-through",
               "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "Node name for S&R": "SeeThrough_LoadLayerDiffModel",
               "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
@@ -746,46 +746,6 @@
               "layerdifforg/seethroughv0.0.2_layerdiff3d",
               "",
               ""
-            ]
-          },
-          {
-            "id": 18,
-            "type": "SeeThrough_LoadDepthModel",
-            "pos": [
-              1150.6824903907147,
-              271.73813850374046
-            ],
-            "size": [
-              315,
-              105.796875
-            ],
-            "flags": {},
-            "order": 1,
-            "mode": 0,
-            "inputs": [],
-            "outputs": [
-              {
-                "localized_name": "depth_model",
-                "name": "depth_model",
-                "type": "SEETHROUGH_DEPTH_MODEL",
-                "links": [
-                  21
-                ]
-              }
-            ],
-            "properties": {
-              "aux_id": "jtydhr88/ComfyUI-See-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "Node name for S&R": "SeeThrough_LoadDepthModel",
-              "cnr_id": "comfyui-see-through",
-              "ue_properties": {
-                "widget_ue_connectable": {},
-                "version": "7.5.2",
-                "input_ue_unconnectable": {}
-              }
-            },
-            "widgets_values": [
-              "24yearsold/seethroughv0.0.1_marigold"
             ]
           },
           {
@@ -833,9 +793,9 @@
               }
             ],
             "properties": {
+              "Node name for S&R": "SeeThrough_GenerateDepth",
               "aux_id": "jtydhr88/ComfyUI-See-through",
               "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "Node name for S&R": "SeeThrough_GenerateDepth",
               "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
@@ -889,9 +849,9 @@
               }
             ],
             "properties": {
+              "Node name for S&R": "SeeThrough_PostProcess",
               "aux_id": "jtydhr88/ComfyUI-See-through",
               "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "Node name for S&R": "SeeThrough_PostProcess",
               "cnr_id": "comfyui-see-through",
               "ue_properties": {
                 "widget_ue_connectable": {},
@@ -902,6 +862,46 @@
             "widgets_values": [
               true,
               true
+            ]
+          },
+          {
+            "id": 18,
+            "type": "SeeThrough_LoadDepthModel",
+            "pos": [
+              1150.6824903907147,
+              271.73813850374046
+            ],
+            "size": [
+              315,
+              105.796875
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [
+              {
+                "localized_name": "depth_model",
+                "name": "depth_model",
+                "type": "SEETHROUGH_DEPTH_MODEL",
+                "links": [
+                  21
+                ]
+              }
+            ],
+            "properties": {
+              "Node name for S&R": "SeeThrough_LoadDepthModel",
+              "aux_id": "jtydhr88/ComfyUI-See-through",
+              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+              "cnr_id": "comfyui-see-through",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.5.2",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              "layerdifforg/seethroughv0.0.1_marigold"
             ]
           }
         ],
@@ -966,7 +966,7 @@
   },
   "config": {},
   "extra": {
-    "frontendVersion": "1.39.19",
+    "frontendVersion": "1.41.21",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
@@ -975,10 +975,10 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.8769226950000045,
+      "scale": 0.5816674837782299,
       "offset": [
-        254.43161836955113,
-        453.85676983974514
+        261.6832847597146,
+        609.623907207663
       ]
     }
   },

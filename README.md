@@ -8,6 +8,10 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
+### v1.2.4 — Bug Fixes
+
+- **Fix: Depth model fails to download — HuggingFace repo ID updated** — The default Marigold depth model repo `24yearsold/seethroughv0.0.1_marigold` was moved to `layerdifforg/seethroughv0.0.1_marigold`. Updated the default repo ID so depth model auto-download works again. ([#3](https://github.com/tackcrypto1031/tk_seethrough/issues/3))
+
 ### v1.2.3 — Bug Fixes
 
 - **Fix: PSD download fails with "Failed to load ag-psd bundle from any path"** — ComfyUI's new frontend loads extensions via ES module `import()`, causing `document.currentScript` to be `null`. Replaced with `import.meta.url` for reliable bundle path resolution regardless of install folder name. ([#1](https://github.com/tackcrypto1031/tk_seethrough/issues/1))
@@ -215,7 +219,7 @@ Models are downloaded automatically from HuggingFace on first use:
 | Model | HuggingFace Repo | Purpose |
 |-------|-------------------|---------|
 | LayerDiff 3D | `layerdifforg/seethroughv0.0.2_layerdiff3d` | SDXL-based transparent layer generation |
-| Marigold Depth | `24yearsold/seethroughv0.0.1_marigold` | Fine-tuned monocular depth for anime |
+| Marigold Depth | `layerdifforg/seethroughv0.0.1_marigold` | Fine-tuned monocular depth for anime |
 
 You can also download models manually and place them in `ComfyUI/models/SeeThrough/`.
 

@@ -80,7 +80,7 @@ for _key, _mod in _st_conflict_backup.items():
 del _st_conflict_backup
 
 DEFAULT_LAYERDIFF_REPO = "layerdifforg/seethroughv0.0.2_layerdiff3d"
-DEFAULT_DEPTH_REPO = "24yearsold/seethroughv0.0.1_marigold"
+DEFAULT_DEPTH_REPO = "layerdifforg/seethroughv0.0.1_marigold"
 
 VALID_BODY_PARTS_V2 = [
     "hair", "headwear", "face", "eyes", "eyewear", "ears", "earwear",
