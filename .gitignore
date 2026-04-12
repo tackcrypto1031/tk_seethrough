@@ -37,3 +37,4 @@ node.zip
 .omc/
 .claude/settings.local.json
 docs/
+.github/
