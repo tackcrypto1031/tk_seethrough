@@ -148,8 +148,19 @@ def _scan_model_dirs():
 
 
 def _resolve_model_path(model_name):
-    local = os.path.join(SEETHROUGH_MODELS_DIR, model_name)
-    return local if os.path.isdir(local) else model_name
+    model_basename = model_name.split("/")[-1]
+    local = os.path.join(SEETHROUGH_MODELS_DIR, model_basename)
+    if os.path.isdir(local):
+        return local
+    if "/" in model_name:
+        try:
+            from huggingface_hub import snapshot_download
+            print(f"[SeeThrough] Downloading {model_name} -> {local}", flush=True)
+            snapshot_download(repo_id=model_name, local_dir=local)
+            return local
+        except Exception as e:
+            print(f"[SeeThrough] snapshot_download failed ({e}); falling back to HF cache", flush=True)
+    return model_name
 
 
 def _label_lr_split(labels, stats, id1, id2):
