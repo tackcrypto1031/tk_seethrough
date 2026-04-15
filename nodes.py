@@ -1074,6 +1074,10 @@ class SeeThrough_SavePSD:
                 "parts": ("SEETHROUGH_PARTS",),
                 "filename_prefix": ("STRING", {"default": "seethrough"}),
             },
+            "optional": {
+                "original_image": ("IMAGE",),
+                "source_filename": ("STRING", {"default": ""}),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -1082,7 +1086,7 @@ class SeeThrough_SavePSD:
     CATEGORY = "SeeThrough"
     OUTPUT_NODE = True
 
-    def save(self, parts, filename_prefix="seethrough"):
+    def save(self, parts, filename_prefix="seethrough", original_image=None, source_filename=""):
         from PIL import Image
         import json
 
@@ -1093,6 +1097,42 @@ class SeeThrough_SavePSD:
         output_dir = folder_paths.get_output_directory()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         uid = str(uuid.uuid4())[:8]
+
+        src = _sanitize_filename(source_filename)
+        if src and filename_prefix:
+            base = f"{filename_prefix}_{src}_{uid}"
+        elif src:
+            base = f"{src}_{uid}"
+        else:
+            base = f"{filename_prefix}_{ts}_{uid}"
+
+        base_img_np = None
+        if original_image is not None:
+            src_tensor = original_image[0] if original_image.ndim == 4 else original_image
+            base_img_np = (src_tensor.cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
+                alpha = np.full(base_img_np.shape[:2] + (1,), 255, dtype=np.uint8)
+                base_img_np = np.concatenate([base_img_np, alpha], axis=2)
+            if base_img_np.shape[0] != canvas_h or base_img_np.shape[1] != canvas_w:
+                print(
+                    f"[SeeThrough] WARNING: original_image size "
+                    f"({base_img_np.shape[1]}x{base_img_np.shape[0]}) mismatches "
+                    f"frame_size ({canvas_w}x{canvas_h}). Resizing.",
+                    flush=True,
+                )
+                pil = Image.fromarray(base_img_np, mode="RGBA")
+                pil = pil.resize((canvas_w, canvas_h), Image.LANCZOS)
+                base_img_np = np.array(pil)
+        elif parts.get("input_img") is not None:
+            base_img_np = parts["input_img"]
+            if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
+                alpha = np.full(base_img_np.shape[:2] + (1,), 255, dtype=np.uint8)
+                base_img_np = np.concatenate([base_img_np, alpha], axis=2)
+
+        source_filename_saved = None
+        if base_img_np is not None:
+            source_filename_saved = f"{base}_original.png"
+            Image.fromarray(base_img_np).save(os.path.join(output_dir, source_filename_saved))
 
         sorted_tags = sorted(tag2pinfo.keys(), key=lambda t: tag2pinfo[t].get("depth_median", 1), reverse=True)
 
@@ -1107,7 +1147,7 @@ class SeeThrough_SavePSD:
             xyxy = pinfo.get("xyxy", [0, 0, img.shape[1], img.shape[0]])
             x1, y1, x2, y2 = [int(v) for v in xyxy]
 
-            layer_filename = f"{filename_prefix}_{ts}_{uid}_{tag}.png"
+            layer_filename = f"{base}_{tag}.png"
             Image.fromarray(img).save(os.path.join(output_dir, layer_filename))
 
             entry = {"name": tag, "filename": layer_filename,
@@ -1115,7 +1155,7 @@ class SeeThrough_SavePSD:
                      "depth_median": float(pinfo.get("depth_median", 1))}
 
             if depth is not None:
-                depth_filename = f"{filename_prefix}_{ts}_{uid}_{tag}_depth.png"
+                depth_filename = f"{base}_{tag}_depth.png"
                 if depth.ndim == 2:
                     Image.fromarray(depth, mode="L").save(os.path.join(output_dir, depth_filename))
                 else:
@@ -1150,7 +1190,7 @@ class SeeThrough_SavePSD:
                         x1, y1 = 0, 0
                         x2, y2 = img.shape[1], img.shape[0]
 
-                    run_filename = f"{filename_prefix}_{ts}_{uid}_run{run_idx}_{tag}.png"
+                    run_filename = f"{base}_run{run_idx}_{tag}.png"
                     Image.fromarray(cropped).save(os.path.join(output_dir, run_filename))
                     run_layers.append({
                         "name": tag, "filename": run_filename,
@@ -1162,10 +1202,18 @@ class SeeThrough_SavePSD:
                 })
             print(f"[SeeThrough] Saved {len(all_runs_info)} runs for grouped PSD", flush=True)
 
-        info_filename = f"{filename_prefix}_{ts}_{uid}_layers.json"
+        info_filename = f"{base}_layers.json"
         info_path = os.path.join(output_dir, info_filename)
-        info_data = {"prefix": filename_prefix, "timestamp": f"{ts}_{uid}",
-                     "layers": layer_info_list, "width": int(canvas_w), "height": int(canvas_h)}
+        info_data = {
+            "prefix": filename_prefix,
+            "timestamp": f"{ts}_{uid}",
+            "layers": layer_info_list,
+            "width": int(canvas_w),
+            "height": int(canvas_h),
+            "base": base,
+            "source_name": src,
+            "source_filename": source_filename_saved,
+        }
         if all_runs_info:
             info_data["all_runs"] = all_runs_info
         with open(info_path, "w", encoding="utf-8") as f:
