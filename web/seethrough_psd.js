@@ -49,20 +49,21 @@ function loadImage(url) {
 async function createPSD(layerInfo, psdType) {
     await ensureAgPsdLoaded();
 
-    const { layers, width, height, prefix, timestamp } = layerInfo;
+    const {
+        layers, width, height, prefix, timestamp,
+        base, source_name, source_filename,
+    } = layerInfo;
     const isDepth = psdType === "depth";
     const suffix = isDepth ? "_depth" : "";
 
     console.log(`[SeeThrough] Creating ${isDepth ? "depth " : ""}PSD: ${width}x${height}, ${layers.length} layers`);
 
-    // Create composite canvas
     const compositeCanvas = document.createElement("canvas");
     compositeCanvas.width = width;
     compositeCanvas.height = height;
     const compositeCtx = compositeCanvas.getContext("2d");
 
-    const psdLayers = [];
-
+    const partLayers = [];
     for (const layer of layers) {
         const filenameKey = isDepth ? "depth_filename" : "filename";
         const filename = layer[filenameKey];
@@ -74,17 +75,15 @@ async function createPSD(layerInfo, psdType) {
         const lw = layer.right - layer.left;
         const lh = layer.bottom - layer.top;
 
-        // Create layer canvas at the layer's natural size
         const layerCanvas = document.createElement("canvas");
         layerCanvas.width = lw;
         layerCanvas.height = lh;
         const layerCtx = layerCanvas.getContext("2d");
         layerCtx.drawImage(img, 0, 0, lw, lh);
 
-        // Draw to composite at the correct position
         compositeCtx.drawImage(img, layer.left, layer.top, lw, lh);
 
-        psdLayers.push({
+        partLayers.push({
             name: layer.name,
             canvas: layerCanvas,
             left: layer.left,
@@ -96,25 +95,56 @@ async function createPSD(layerInfo, psdType) {
         });
     }
 
-    const psd = {
-        width,
-        height,
-        canvas: compositeCanvas,
-        children: psdLayers,
-    };
+    const children = [];
+    children.push({
+        name: "Parts",
+        hidden: true,
+        opened: false,
+        children: partLayers,
+    });
 
+    if (source_filename) {
+        const origUrl = api.apiURL(`/view?filename=${encodeURIComponent(source_filename)}&type=output&t=${Date.now()}`);
+        try {
+            const origImg = await loadImage(origUrl);
+            const origCanvas = document.createElement("canvas");
+            origCanvas.width = width;
+            origCanvas.height = height;
+            origCanvas.getContext("2d").drawImage(origImg, 0, 0, width, height);
+            const prevComposite = compositeCtx.globalCompositeOperation;
+            compositeCtx.globalCompositeOperation = "destination-over";
+            compositeCtx.drawImage(origImg, 0, 0, width, height);
+            compositeCtx.globalCompositeOperation = prevComposite;
+            children.push({
+                name: "Original",
+                hidden: false,
+                canvas: origCanvas,
+                left: 0,
+                top: 0,
+                right: width,
+                bottom: height,
+                blendMode: "normal",
+                opacity: 1,
+            });
+        } catch (e) {
+            console.warn("[SeeThrough] Failed to load original base layer:", e);
+        }
+    }
+
+    const psd = { width, height, canvas: compositeCanvas, children };
     const psdBuffer = window.AgPsd.writePsd(psd);
     const blob = new Blob([psdBuffer], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    const downloadBase = base || `${prefix}_${timestamp}`;
     a.href = url;
-    a.download = `${prefix}_${timestamp}${suffix}.psd`;
+    a.download = `${downloadBase}${suffix}.psd`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    console.log(`[SeeThrough] PSD downloaded: ${prefix}_${timestamp}${suffix}.psd`);
+    console.log(`[SeeThrough] PSD downloaded: ${a.download}`);
 }
 
 async function createAllRunsPSD(layerInfo) {
@@ -167,33 +197,60 @@ async function createAllRunsPSD(layerInfo) {
             });
         }
 
-        // Create group (folder) for this run
         runGroups.push({
             name: `Run ${runData.run} (seed=${runData.seed}, ${runData.layer_count} layers)`,
             children: groupLayers,
             opened: false,
+            hidden: true,
         });
     }
 
-    const psd = {
-        width,
-        height,
-        canvas: compositeCanvas,
+    const children = [{
+        name: "Runs",
+        hidden: true,
+        opened: false,
         children: runGroups,
-    };
+    }];
 
+    if (layerInfo.source_filename) {
+        const origUrl = api.apiURL(`/view?filename=${encodeURIComponent(layerInfo.source_filename)}&type=output&t=${Date.now()}`);
+        try {
+            const origImg = await loadImage(origUrl);
+            const origCanvas = document.createElement("canvas");
+            origCanvas.width = width;
+            origCanvas.height = height;
+            origCanvas.getContext("2d").drawImage(origImg, 0, 0, width, height);
+            const prev = compositeCtx.globalCompositeOperation;
+            compositeCtx.globalCompositeOperation = "destination-over";
+            compositeCtx.drawImage(origImg, 0, 0, width, height);
+            compositeCtx.globalCompositeOperation = prev;
+            children.push({
+                name: "Original",
+                hidden: false,
+                canvas: origCanvas,
+                left: 0, top: 0, right: width, bottom: height,
+                blendMode: "normal",
+                opacity: 1,
+            });
+        } catch (e) {
+            console.warn("[SeeThrough] Failed to load original base layer:", e);
+        }
+    }
+
+    const psd = { width, height, canvas: compositeCanvas, children };
     const psdBuffer = window.AgPsd.writePsd(psd);
     const blob = new Blob([psdBuffer], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    const downloadBase = layerInfo.base || `${prefix}_${timestamp}`;
     a.href = url;
-    a.download = `${prefix}_${timestamp}_all_runs.psd`;
+    a.download = `${downloadBase}_all_runs.psd`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    console.log(`[SeeThrough] All Runs PSD downloaded: ${prefix}_${timestamp}_all_runs.psd`);
+    console.log(`[SeeThrough] All Runs PSD downloaded: ${a.download}`);
 }
 
 app.registerExtension({
