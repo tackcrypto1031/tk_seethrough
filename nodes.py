@@ -12,6 +12,18 @@ import numpy as np
 import folder_paths
 import comfy.model_management as mm
 import traceback
+import re
+
+
+def _sanitize_filename(name):
+    """Windows-safe filename sanitization; preserves Unicode and spaces.
+
+    Replaces `<>:"|?*\\/\x00` with underscore; strips trailing dots/spaces.
+    """
+    if not name:
+        return ""
+    cleaned = re.sub(r'[<>:"|?*\\/\x00]', '_', str(name))
+    return cleaned.rstrip(' .')
 
 
 def _log_vram(label):
