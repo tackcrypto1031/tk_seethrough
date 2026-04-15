@@ -8,6 +8,12 @@
 
 ## 本 Fork 新增功能
 
+### v1.2.8 — Issue #5
+
+- 新增節點 **SeeThrough Load Source**:行為與 ComfyUI LoadImage 相同,額外輸出 `source_filename`,讓最終 PSD 保留原始檔名。
+- **SeeThrough Save PSD** 新增 optional 輸入 `original_image` 與 `source_filename`,自動將原始輸入圖作為可見底圖放入 PSD,且輸出檔名會保留原檔名。
+- PSD 圖層結構改為分組:`Original`(底層可見)/`Parts`(隱藏)/`Runs`(隱藏,僅 grouped PSD 模式),開啟 PSD 即見原圖,依需要展開 group 修局部。
+
 ### v1.2.3 — 問題修復
 
 - **修復：PSD 下載失敗「Failed to load ag-psd bundle from any path」** — ComfyUI 新版前端以 ES module `import()` 載入擴充套件，導致 `document.currentScript` 為 `null`。改用 `import.meta.url` 可靠地解析 bundle 路徑，不受安裝資料夾名稱影響。（[#1](https://github.com/tackcrypto1031/tk_seethrough/issues/1)）

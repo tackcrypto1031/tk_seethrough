@@ -8,6 +8,12 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
+### v1.2.8 — Issue #5
+
+- New node **SeeThrough Load Source**: same dropdown as ComfyUI's LoadImage, plus outputs `source_filename` for preserving the original filename in PSD output.
+- **SeeThrough Save PSD** now accepts optional `original_image` + `source_filename` inputs, automatically includes the original input image as a visible base layer in the generated PSD, and uses the source filename in output filenames when available.
+- PSD layer structure is now grouped: `Original` (visible, bottom), `Parts` (hidden), `Runs` (hidden, grouped-PSD mode only) — opens the PSD on the original so you can toggle groups to edit specific parts.
+
 ### v1.2.4 — Bug Fixes
 
 - **Fix: Depth model fails to download — HuggingFace repo ID updated** — The default Marigold depth model repo `24yearsold/seethroughv0.0.1_marigold` was moved to `layerdifforg/seethroughv0.0.1_marigold`. Updated the default repo ID so depth model auto-download works again. ([#3](https://github.com/tackcrypto1031/tk_seethrough/issues/3))
