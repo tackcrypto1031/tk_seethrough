@@ -1437,7 +1437,61 @@ class SeeThrough_ExportSpine:
         return (json_path,)
 
 
+class SeeThrough_LoadSource:
+    """Loads an image like ComfyUI's LoadImage but also outputs the source filename.
+
+    Used to feed `SeeThrough_SavePSD.source_filename` so the final PSD keeps the
+    user's original filename instead of a timestamp.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        try:
+            files = [
+                f for f in os.listdir(input_dir)
+                if os.path.isfile(os.path.join(input_dir, f))
+            ]
+        except FileNotFoundError:
+            files = []
+        return {
+            "required": {
+                "image": (sorted(files), {"image_upload": True}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
+    RETURN_NAMES = ("image", "mask", "source_filename")
+    FUNCTION = "load"
+    CATEGORY = "SeeThrough"
+
+    def load(self, image):
+        from PIL import Image, ImageOps
+        image_path = folder_paths.get_annotated_filepath(image)
+        img = Image.open(image_path)
+        img = ImageOps.exif_transpose(img)
+        rgb = img.convert("RGB")
+        arr = np.array(rgb).astype(np.float32) / 255.0
+        tensor = torch.from_numpy(arr)[None,]  # [1, H, W, 3]
+
+        if "A" in img.getbands():
+            mask_arr = np.array(img.getchannel("A")).astype(np.float32) / 255.0
+            mask = 1.0 - torch.from_numpy(mask_arr)
+        else:
+            mask = torch.zeros((tensor.shape[1], tensor.shape[2]), dtype=torch.float32)
+
+        basename = os.path.splitext(os.path.basename(image))[0]
+        source_filename = _sanitize_filename(basename)
+
+        if tensor.shape[0] > 1:
+            print(f"[SeeThrough] LoadSource: batch>1 not supported, using [0]", flush=True)
+            tensor = tensor[:1]
+
+        return (tensor, mask.unsqueeze(0) if mask.ndim == 2 else mask, source_filename)
+
+
 NODE_CLASS_MAPPINGS = {
+    "SeeThrough_LoadSource": SeeThrough_LoadSource,
     "SeeThrough_LoadLayerDiffModel": SeeThrough_LoadLayerDiffModel,
     "SeeThrough_LoadDepthModel": SeeThrough_LoadDepthModel,
     "SeeThrough_GenerateLayers": SeeThrough_GenerateLayers,
@@ -1451,6 +1505,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "SeeThrough_LoadSource": "SeeThrough Load Source",
     "SeeThrough_LoadLayerDiffModel": "SeeThrough Load LayerDiff Model",
     "SeeThrough_LoadDepthModel": "SeeThrough Load Depth Model",
     "SeeThrough_GenerateLayers": "SeeThrough Generate Layers",
