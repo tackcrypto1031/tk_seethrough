@@ -1050,8 +1050,12 @@ class SeeThrough_PostProcess:
 
         frame_size = fullpage.shape[:2]
         all_runs_layers = getattr(layers_depth, 'all_runs_layers', None)
-        parts_data = {"tag2pinfo": tag2pinfo, "frame_size": frame_size,
-                       "all_runs_layers": all_runs_layers}
+        parts_data = {
+            "tag2pinfo": tag2pinfo,
+            "frame_size": frame_size,
+            "all_runs_layers": all_runs_layers,
+            "input_img": layers_data.input_img,  # RGBA numpy, for PSD base layer
+        }
 
         print(f"[SeeThrough] PostProcess complete: {len(tag2pinfo)} layers", flush=True)
         for tag, pinfo in sorted(tag2pinfo.items(), key=lambda x: x[1].get("depth_median", 1)):
