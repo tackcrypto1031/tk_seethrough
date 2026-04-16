@@ -1056,7 +1056,7 @@ class SeeThrough_PostProcess:
             "tag2pinfo": tag2pinfo,
             "frame_size": frame_size,
             "all_runs_layers": all_runs_layers,
-            "input_img": getattr(layers_depth, 'input_img', None),  # RGBA numpy, for PSD base layer
+            "fullpage": fullpage,  # center-padded original (resolution x resolution, RGBA), for PSD base layer
         }
 
         print(f"[SeeThrough] PostProcess complete: {len(tag2pinfo)} layers", flush=True)
@@ -1125,8 +1125,8 @@ class SeeThrough_SavePSD:
                 pil = Image.fromarray(base_img_np, mode="RGBA")
                 pil = pil.resize((canvas_w, canvas_h), Image.LANCZOS)
                 base_img_np = np.array(pil)
-        elif parts.get("input_img") is not None:
-            base_img_np = parts["input_img"]
+        elif parts.get("fullpage") is not None:
+            base_img_np = parts["fullpage"]
             if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
                 alpha = np.full(base_img_np.shape[:2] + (1,), 255, dtype=np.uint8)
                 base_img_np = np.concatenate([base_img_np, alpha], axis=2)
