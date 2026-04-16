@@ -1,111 +1,9 @@
 {
   "id": "seethrough-basic-workflow",
   "revision": 0,
-  "last_node_id": 29,
-  "last_link_id": 32,
+  "last_node_id": 30,
+  "last_link_id": 36,
   "nodes": [
-    {
-      "id": 11,
-      "type": "RMBG",
-      "pos": [
-        297.53476191509566,
-        76.61067072140801
-      ],
-      "size": [
-        340,
-        292
-      ],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 14
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            16,
-            26
-          ]
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": null
-        },
-        {
-          "name": "MASK_IMAGE",
-          "type": "IMAGE",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfyui-rmbg",
-        "ver": "a1ca256ce5ef3d2d990935415bad76c4269aa80d",
-        "Node name for S&R": "RMBG",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": [
-        "RMBG-2.0",
-        1,
-        1024,
-        0,
-        0,
-        false,
-        false,
-        "Alpha",
-        "#222222"
-      ],
-      "color": "#222e40",
-      "bgcolor": "#364254"
-    },
-    {
-      "id": 15,
-      "type": "PreviewImage",
-      "pos": [
-        295.5894752211178,
-        424.96406132998123
-      ],
-      "size": [
-        349.8247919907142,
-        269.2750061548311
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 16
-        }
-      ],
-      "outputs": [],
-      "title": "去除背景預覽",
-      "properties": {
-        "Node name for S&R": "PreviewImage",
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": [],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
     {
       "id": 8,
       "type": "PreviewImage",
@@ -118,7 +16,7 @@
         246.00000000000003
       ],
       "flags": {},
-      "order": 8,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
@@ -142,50 +40,6 @@
       "widgets_values": []
     },
     {
-      "id": 1,
-      "type": "LoadImage",
-      "pos": [
-        -74.99413086580088,
-        47.71136467962566
-      ],
-      "size": [
-        315,
-        340
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            14
-          ]
-        },
-        {
-          "name": "MASK",
-          "type": "MASK",
-          "links": []
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "LoadImage",
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "ComfyUI_temp_mrita_00002_.png",
-        "image"
-      ]
-    },
-    {
       "id": 27,
       "type": "SeeThrough_ExportSpine",
       "pos": [
@@ -197,7 +51,7 @@
         106
       ],
       "flags": {},
-      "order": 11,
+      "order": 8,
       "mode": 4,
       "inputs": [
         {
@@ -230,149 +84,6 @@
       ]
     },
     {
-      "id": 13,
-      "type": "Fast Groups Bypasser (rgthree)",
-      "pos": [
-        -41.66812114566246,
-        -136.04775118072178
-      ],
-      "size": [
-        247.2955078125,
-        106
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "OPT_CONNECTION",
-          "type": "*",
-          "links": null
-        }
-      ],
-      "properties": {
-        "matchColors": "",
-        "matchTitle": "",
-        "showNav": true,
-        "showAllGraphs": true,
-        "sort": "position",
-        "customSortAlphabet": "",
-        "toggleRestriction": "default",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      }
-    },
-    {
-      "id": 23,
-      "type": "SeeThrough_GenerateLayers_Custom",
-      "pos": [
-        681.8584991754549,
-        37.63407856585468
-      ],
-      "size": [
-        369.10184794826625,
-        222
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 26
-        },
-        {
-          "name": "layerdiff_model",
-          "type": "SEETHROUGH_LAYERDIFF_MODEL",
-          "link": 29
-        }
-      ],
-      "outputs": [
-        {
-          "name": "layers",
-          "type": "SEETHROUGH_LAYERS",
-          "links": [
-            28
-          ]
-        },
-        {
-          "name": "preview",
-          "type": "IMAGE",
-          "links": []
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "SeeThrough_GenerateLayers_Custom",
-        "aux_id": "tackcrypto1031/tk_seethrough",
-        "ver": "a55dbef1367d827865c7fffb0951e6fcf818a42c",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": [
-        3643003174,
-        "randomize",
-        1280,
-        30,
-        true,
-        3,
-        0.01
-      ]
-    },
-    {
-      "id": 7,
-      "type": "SeeThrough_SavePSD",
-      "pos": [
-        1308.3136670065714,
-        40.47093253596652
-      ],
-      "size": [
-        315,
-        163.140625
-      ],
-      "flags": {},
-      "order": 7,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "parts",
-          "type": "SEETHROUGH_PARTS",
-          "link": 30
-        }
-      ],
-      "outputs": [
-        {
-          "name": "info_file",
-          "type": "STRING",
-          "links": []
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "SeeThrough_SavePSD",
-        "aux_id": "jtydhr88/ComfyUI-See-through",
-        "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-        "cnr_id": "comfyui-see-through",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "seethrough",
-        "Download PSD",
-        "Download Depth PSD",
-        "Download All Runs PSD"
-      ]
-    },
-    {
       "id": 14,
       "type": "Note",
       "pos": [
@@ -384,7 +95,7 @@
         148.94740715998864
       ],
       "flags": {},
-      "order": 2,
+      "order": 0,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -413,7 +124,7 @@
         148.94740715998864
       ],
       "flags": {},
-      "order": 3,
+      "order": 1,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -442,7 +153,7 @@
         164.91232639383276
       ],
       "flags": {},
-      "order": 4,
+      "order": 2,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -471,7 +182,7 @@
         98
       ],
       "flags": {},
-      "order": 10,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -520,33 +231,175 @@
         }
       },
       "widgets_values": []
+    },
+    {
+      "id": 23,
+      "type": "SeeThrough_GenerateLayers_Custom",
+      "pos": [
+        681.8584991754549,
+        37.63407856585468
+      ],
+      "size": [
+        369.10184794826625,
+        222
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 35
+        },
+        {
+          "name": "layerdiff_model",
+          "type": "SEETHROUGH_LAYERDIFF_MODEL",
+          "link": 29
+        }
+      ],
+      "outputs": [
+        {
+          "name": "layers",
+          "type": "SEETHROUGH_LAYERS",
+          "links": [
+            28
+          ]
+        },
+        {
+          "name": "preview",
+          "type": "IMAGE",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SeeThrough_GenerateLayers_Custom",
+        "aux_id": "tackcrypto1031/tk_seethrough",
+        "ver": "a55dbef1367d827865c7fffb0951e6fcf818a42c",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      },
+      "widgets_values": [
+        2368992073,
+        "randomize",
+        1280,
+        30,
+        true,
+        false,
+        0.01
+      ]
+    },
+    {
+      "id": 30,
+      "type": "SeeThrough_LoadSource",
+      "pos": [
+        341.5550924187668,
+        39.76942255997217
+      ],
+      "size": [
+        270,
+        334.0000000000001
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            35
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        },
+        {
+          "name": "source_filename",
+          "type": "STRING",
+          "links": [
+            36
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SeeThrough_LoadSource"
+      },
+      "widgets_values": [
+        "03dern5jtaybbkuh32oh6ygzxa4gbv1.png",
+        "image"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "SeeThrough_SavePSD",
+      "pos": [
+        1308.3136670065714,
+        40.47093253596652
+      ],
+      "size": [
+        315,
+        174
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "parts",
+          "type": "SEETHROUGH_PARTS",
+          "link": 30
+        },
+        {
+          "name": "original_image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "source_filename",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "source_filename"
+          },
+          "link": 36
+        }
+      ],
+      "outputs": [
+        {
+          "name": "info_file",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SeeThrough_SavePSD",
+        "aux_id": "jtydhr88/ComfyUI-See-through",
+        "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
+        "cnr_id": "comfyui-see-through",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "seethrough",
+        "Download PSD",
+        "Download Depth PSD",
+        "Download All Runs PSD",
+        "Download All Runs PSD"
+      ]
     }
   ],
   "links": [
-    [
-      14,
-      1,
-      0,
-      11,
-      0,
-      "IMAGE"
-    ],
-    [
-      16,
-      11,
-      0,
-      15,
-      0,
-      "IMAGE"
-    ],
-    [
-      26,
-      11,
-      0,
-      23,
-      0,
-      "IMAGE"
-    ],
     [
       28,
       23,
@@ -586,22 +439,25 @@
       27,
       0,
       "SEETHROUGH_PARTS"
+    ],
+    [
+      35,
+      30,
+      0,
+      23,
+      0,
+      "IMAGE"
+    ],
+    [
+      36,
+      30,
+      2,
+      7,
+      2,
+      "STRING"
     ]
   ],
   "groups": [
-    {
-      "id": 1,
-      "title": "去背",
-      "bounding": [
-        287.53476191509566,
-        3.010670721408019,
-        368.362483939505,
-        724.5475899984026
-      ],
-      "color": "#3f789e",
-      "font_size": 24,
-      "flags": {}
-    },
     {
       "id": 2,
       "title": "匯出Spine Json",
@@ -623,8 +479,8 @@
         "version": 1,
         "state": {
           "lastGroupId": 2,
-          "lastNodeId": 29,
-          "lastLinkId": 32,
+          "lastNodeId": 30,
+          "lastLinkId": 36,
           "lastRerouteId": 0
         },
         "revision": 0,
@@ -804,7 +660,7 @@
               }
             },
             "widgets_values": [
-              3250080091,
+              1074755827,
               "randomize"
             ]
           },
@@ -975,10 +831,10 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.5816674837782299,
+      "scale": 0.7038174916585027,
       "offset": [
-        261.6832847597146,
-        609.623907207663
+        251.15036806282328,
+        286.222551666722
       ]
     }
   },
