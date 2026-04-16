@@ -135,12 +135,13 @@ class SeeThrough_LayersData:
 
 class SeeThrough_LayersDepthData:
     """Output of GenerateDepth: layers + per-tag depth maps."""
-    def __init__(self, layer_dict, depth_dict, fullpage, resolution, all_runs_layers=None):
+    def __init__(self, layer_dict, depth_dict, fullpage, resolution, all_runs_layers=None, input_img=None):
         self.layer_dict = layer_dict      # tag -> RGBA numpy
         self.depth_dict = depth_dict      # tag -> float32 depth [0,1]
         self.fullpage = fullpage
         self.resolution = resolution
         self.all_runs_layers = all_runs_layers  # passed through from LayersData
+        self.input_img = input_img        # original input (RGBA), for PSD base layer
 
 
 def seed_everything(seed):
@@ -922,7 +923,8 @@ class SeeThrough_GenerateDepth:
         print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps, Marigold offloaded to CPU", flush=True)
 
         result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution,
-                                                all_runs_layers=getattr(layers, 'all_runs_layers', None))
+                                                all_runs_layers=getattr(layers, 'all_runs_layers', None),
+                                                input_img=getattr(layers, 'input_img', None))
 
         # Preview: blend with depth info
         preview_dict = {}
@@ -1054,7 +1056,7 @@ class SeeThrough_PostProcess:
             "tag2pinfo": tag2pinfo,
             "frame_size": frame_size,
             "all_runs_layers": all_runs_layers,
-            "input_img": layers_data.input_img,  # RGBA numpy, for PSD base layer
+            "input_img": getattr(layers_depth, 'input_img', None),  # RGBA numpy, for PSD base layer
         }
 
         print(f"[SeeThrough] PostProcess complete: {len(tag2pinfo)} layers", flush=True)
