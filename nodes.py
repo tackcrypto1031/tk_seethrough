@@ -12,6 +12,18 @@ import numpy as np
 import folder_paths
 import comfy.model_management as mm
 import traceback
+import re
+
+
+def _sanitize_filename(name):
+    """Windows-safe filename sanitization; preserves Unicode and spaces.
+
+    Replaces `<>:"|?*\\/\x00` with underscore; strips trailing dots/spaces.
+    """
+    if not name:
+        return ""
+    cleaned = re.sub(r'[<>:"|?*\\/\x00]', '_', str(name))
+    return cleaned.rstrip(' .')
 
 
 def _log_vram(label):
@@ -123,12 +135,13 @@ class SeeThrough_LayersData:
 
 class SeeThrough_LayersDepthData:
     """Output of GenerateDepth: layers + per-tag depth maps."""
-    def __init__(self, layer_dict, depth_dict, fullpage, resolution, all_runs_layers=None):
+    def __init__(self, layer_dict, depth_dict, fullpage, resolution, all_runs_layers=None, input_img=None):
         self.layer_dict = layer_dict      # tag -> RGBA numpy
         self.depth_dict = depth_dict      # tag -> float32 depth [0,1]
         self.fullpage = fullpage
         self.resolution = resolution
         self.all_runs_layers = all_runs_layers  # passed through from LayersData
+        self.input_img = input_img        # original input (RGBA), for PSD base layer
 
 
 def seed_everything(seed):
@@ -910,7 +923,8 @@ class SeeThrough_GenerateDepth:
         print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps, Marigold offloaded to CPU", flush=True)
 
         result = SeeThrough_LayersDepthData(layer_dict, depth_dict, fullpage, resolution,
-                                                all_runs_layers=getattr(layers, 'all_runs_layers', None))
+                                                all_runs_layers=getattr(layers, 'all_runs_layers', None),
+                                                input_img=getattr(layers, 'input_img', None))
 
         # Preview: blend with depth info
         preview_dict = {}
@@ -1038,8 +1052,12 @@ class SeeThrough_PostProcess:
 
         frame_size = fullpage.shape[:2]
         all_runs_layers = getattr(layers_depth, 'all_runs_layers', None)
-        parts_data = {"tag2pinfo": tag2pinfo, "frame_size": frame_size,
-                       "all_runs_layers": all_runs_layers}
+        parts_data = {
+            "tag2pinfo": tag2pinfo,
+            "frame_size": frame_size,
+            "all_runs_layers": all_runs_layers,
+            "fullpage": fullpage,  # center-padded original (resolution x resolution, RGBA), for PSD base layer
+        }
 
         print(f"[SeeThrough] PostProcess complete: {len(tag2pinfo)} layers", flush=True)
         for tag, pinfo in sorted(tag2pinfo.items(), key=lambda x: x[1].get("depth_median", 1)):
@@ -1058,6 +1076,10 @@ class SeeThrough_SavePSD:
                 "parts": ("SEETHROUGH_PARTS",),
                 "filename_prefix": ("STRING", {"default": "seethrough"}),
             },
+            "optional": {
+                "original_image": ("IMAGE",),
+                "source_filename": ("STRING", {"default": ""}),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -1066,7 +1088,7 @@ class SeeThrough_SavePSD:
     CATEGORY = "SeeThrough"
     OUTPUT_NODE = True
 
-    def save(self, parts, filename_prefix="seethrough"):
+    def save(self, parts, filename_prefix="seethrough", original_image=None, source_filename=""):
         from PIL import Image
         import json
 
@@ -1077,6 +1099,42 @@ class SeeThrough_SavePSD:
         output_dir = folder_paths.get_output_directory()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         uid = str(uuid.uuid4())[:8]
+
+        src = _sanitize_filename(source_filename)
+        if src and filename_prefix:
+            base = f"{filename_prefix}_{src}_{uid}"
+        elif src:
+            base = f"{src}_{uid}"
+        else:
+            base = f"{filename_prefix}_{ts}_{uid}"
+
+        base_img_np = None
+        if original_image is not None:
+            src_tensor = original_image[0] if original_image.ndim == 4 else original_image
+            base_img_np = (src_tensor.cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+            if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
+                alpha = np.full(base_img_np.shape[:2] + (1,), 255, dtype=np.uint8)
+                base_img_np = np.concatenate([base_img_np, alpha], axis=2)
+            if base_img_np.shape[0] != canvas_h or base_img_np.shape[1] != canvas_w:
+                print(
+                    f"[SeeThrough] WARNING: original_image size "
+                    f"({base_img_np.shape[1]}x{base_img_np.shape[0]}) mismatches "
+                    f"frame_size ({canvas_w}x{canvas_h}). Resizing.",
+                    flush=True,
+                )
+                pil = Image.fromarray(base_img_np, mode="RGBA")
+                pil = pil.resize((canvas_w, canvas_h), Image.LANCZOS)
+                base_img_np = np.array(pil)
+        elif parts.get("fullpage") is not None:
+            base_img_np = parts["fullpage"]
+            if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
+                alpha = np.full(base_img_np.shape[:2] + (1,), 255, dtype=np.uint8)
+                base_img_np = np.concatenate([base_img_np, alpha], axis=2)
+
+        source_filename_saved = None
+        if base_img_np is not None:
+            source_filename_saved = f"{base}_original.png"
+            Image.fromarray(base_img_np).save(os.path.join(output_dir, source_filename_saved))
 
         sorted_tags = sorted(tag2pinfo.keys(), key=lambda t: tag2pinfo[t].get("depth_median", 1), reverse=True)
 
@@ -1091,7 +1149,7 @@ class SeeThrough_SavePSD:
             xyxy = pinfo.get("xyxy", [0, 0, img.shape[1], img.shape[0]])
             x1, y1, x2, y2 = [int(v) for v in xyxy]
 
-            layer_filename = f"{filename_prefix}_{ts}_{uid}_{tag}.png"
+            layer_filename = f"{base}_{tag}.png"
             Image.fromarray(img).save(os.path.join(output_dir, layer_filename))
 
             entry = {"name": tag, "filename": layer_filename,
@@ -1099,7 +1157,7 @@ class SeeThrough_SavePSD:
                      "depth_median": float(pinfo.get("depth_median", 1))}
 
             if depth is not None:
-                depth_filename = f"{filename_prefix}_{ts}_{uid}_{tag}_depth.png"
+                depth_filename = f"{base}_{tag}_depth.png"
                 if depth.ndim == 2:
                     Image.fromarray(depth, mode="L").save(os.path.join(output_dir, depth_filename))
                 else:
@@ -1134,7 +1192,7 @@ class SeeThrough_SavePSD:
                         x1, y1 = 0, 0
                         x2, y2 = img.shape[1], img.shape[0]
 
-                    run_filename = f"{filename_prefix}_{ts}_{uid}_run{run_idx}_{tag}.png"
+                    run_filename = f"{base}_run{run_idx}_{tag}.png"
                     Image.fromarray(cropped).save(os.path.join(output_dir, run_filename))
                     run_layers.append({
                         "name": tag, "filename": run_filename,
@@ -1146,10 +1204,18 @@ class SeeThrough_SavePSD:
                 })
             print(f"[SeeThrough] Saved {len(all_runs_info)} runs for grouped PSD", flush=True)
 
-        info_filename = f"{filename_prefix}_{ts}_{uid}_layers.json"
+        info_filename = f"{base}_layers.json"
         info_path = os.path.join(output_dir, info_filename)
-        info_data = {"prefix": filename_prefix, "timestamp": f"{ts}_{uid}",
-                     "layers": layer_info_list, "width": int(canvas_w), "height": int(canvas_h)}
+        info_data = {
+            "prefix": filename_prefix,
+            "timestamp": f"{ts}_{uid}",
+            "layers": layer_info_list,
+            "width": int(canvas_w),
+            "height": int(canvas_h),
+            "base": base,
+            "source_name": src,
+            "source_filename": source_filename_saved,
+        }
         if all_runs_info:
             info_data["all_runs"] = all_runs_info
         with open(info_path, "w", encoding="utf-8") as f:
@@ -1425,7 +1491,61 @@ class SeeThrough_ExportSpine:
         return (json_path,)
 
 
+class SeeThrough_LoadSource:
+    """Loads an image like ComfyUI's LoadImage but also outputs the source filename.
+
+    Used to feed `SeeThrough_SavePSD.source_filename` so the final PSD keeps the
+    user's original filename instead of a timestamp.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        try:
+            files = [
+                f for f in os.listdir(input_dir)
+                if os.path.isfile(os.path.join(input_dir, f))
+            ]
+        except FileNotFoundError:
+            files = []
+        return {
+            "required": {
+                "image": (sorted(files), {"image_upload": True}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
+    RETURN_NAMES = ("image", "mask", "source_filename")
+    FUNCTION = "load"
+    CATEGORY = "SeeThrough"
+
+    def load(self, image):
+        from PIL import Image, ImageOps
+        image_path = folder_paths.get_annotated_filepath(image)
+        img = Image.open(image_path)
+        img = ImageOps.exif_transpose(img)
+        rgb = img.convert("RGB")
+        arr = np.array(rgb).astype(np.float32) / 255.0
+        tensor = torch.from_numpy(arr)[None,]  # [1, H, W, 3]
+
+        if "A" in img.getbands():
+            mask_arr = np.array(img.getchannel("A")).astype(np.float32) / 255.0
+            mask = 1.0 - torch.from_numpy(mask_arr)
+        else:
+            mask = torch.zeros((tensor.shape[1], tensor.shape[2]), dtype=torch.float32)
+
+        basename = os.path.splitext(os.path.basename(image))[0]
+        source_filename = _sanitize_filename(basename)
+
+        if tensor.shape[0] > 1:
+            print(f"[SeeThrough] LoadSource: batch>1 not supported, using [0]", flush=True)
+            tensor = tensor[:1]
+
+        return (tensor, mask.unsqueeze(0) if mask.ndim == 2 else mask, source_filename)
+
+
 NODE_CLASS_MAPPINGS = {
+    "SeeThrough_LoadSource": SeeThrough_LoadSource,
     "SeeThrough_LoadLayerDiffModel": SeeThrough_LoadLayerDiffModel,
     "SeeThrough_LoadDepthModel": SeeThrough_LoadDepthModel,
     "SeeThrough_GenerateLayers": SeeThrough_GenerateLayers,
@@ -1439,6 +1559,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "SeeThrough_LoadSource": "SeeThrough Load Source",
     "SeeThrough_LoadLayerDiffModel": "SeeThrough Load LayerDiff Model",
     "SeeThrough_LoadDepthModel": "SeeThrough Load Depth Model",
     "SeeThrough_GenerateLayers": "SeeThrough Generate Layers",
