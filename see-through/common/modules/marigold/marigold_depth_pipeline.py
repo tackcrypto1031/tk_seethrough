@@ -519,6 +519,13 @@ class MarigoldDepthPipeline(DiffusionPipeline):
         """
         Encode text embedding for empty prompt
         """
+        try:
+            te_device = next(self.text_encoder.parameters()).device
+        except StopIteration:
+            raise RuntimeError(
+                "text_encoder has no parameters — it was likely replaced by a placeholder "
+                "during pipeline loading. See https://github.com/tackcrypto1031/tk_seethrough/issues/6"
+            )
         prompt = ""
         text_inputs = self.tokenizer(
             prompt,
@@ -527,7 +534,7 @@ class MarigoldDepthPipeline(DiffusionPipeline):
             truncation=True,
             return_tensors="pt",
         )
-        text_input_ids = text_inputs.input_ids.to(self.text_encoder.device)
+        text_input_ids = text_inputs.input_ids.to(te_device)
         self.empty_text_embed = self.text_encoder(text_input_ids)[0].to(self.dtype)
 
     @torch.no_grad()

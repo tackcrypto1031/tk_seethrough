@@ -140,7 +140,13 @@ class KDiffusionStableDiffusionXLPipeline(StableDiffusionXLImg2ImgPipeline):
 
     @torch.inference_mode()
     def encode_cropped_prompt_77tokens(self, prompt: str):
-        device = self.text_encoder.device
+        try:
+            device = next(self.text_encoder.parameters()).device
+        except StopIteration:
+            raise RuntimeError(
+                "text_encoder has no parameters — it was likely replaced by a placeholder "
+                "during pipeline loading. See https://github.com/tackcrypto1031/tk_seethrough/issues/6"
+            )
         tokenizers = [self.tokenizer, self.tokenizer_2]
         text_encoders = [self.text_encoder, self.text_encoder_2]
 

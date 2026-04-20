@@ -33,6 +33,22 @@ def _log_vram(label):
         reserved = torch.cuda.memory_reserved() / (1024 ** 3)
         print(f"[SeeThrough VRAM] {label}: allocated={alloc:.2f}GB, reserved={reserved:.2f}GB", flush=True)
 
+
+def _assert_text_encoder_loaded(text_encoder, name, pretrained):
+    """Fail fast when diffusers silently substitutes an empty placeholder (e.g. nn.Identity)
+    for a missing text_encoder. Detects by checking for the presence of parameters, which
+    covers any placeholder type, not just nn.Identity. See issue #6."""
+    if text_encoder is None or next(text_encoder.parameters(), None) is None:
+        raise RuntimeError(
+            f"{name} failed to load (got empty placeholder with no parameters).\n"
+            f"Model path: {pretrained}\n"
+            f"Likely causes:\n"
+            f"  1. Model checkpoint missing text_encoder/text_encoder_2 subfolder or model_index.json entries.\n"
+            f"  2. Incompatible diffusers version silently substituted nn.Identity placeholder.\n"
+            f"Fix: re-download the model, or downgrade diffusers to a version compatible with your ComfyUI build.\n"
+            f"See: https://github.com/tackcrypto1031/tk_seethrough/issues/6"
+        )
+
 print("[SeeThrough] nodes.py: comfy imports OK", flush=True)
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -319,6 +335,9 @@ class SeeThrough_LoadLayerDiffModel:
         pipeline = KDiffusionStableDiffusionXLPipeline.from_pretrained(
             pretrained, trans_vae=trans_vae, unet=unet, scheduler=None)
 
+        _assert_text_encoder_loaded(pipeline.text_encoder, "text_encoder", pretrained)
+        _assert_text_encoder_loaded(pipeline.text_encoder_2, "text_encoder_2", pretrained)
+
         if vae_ckpt:
             print(f"[SeeThrough] Loading custom VAE from: {vae_ckpt}", flush=True)
             td_sd, vae_sd = {}, {}
@@ -367,6 +386,8 @@ class SeeThrough_LoadDepthModel:
         print(f"[SeeThrough] Loading Marigold depth model from: {pretrained}", flush=True)
         unet = UNetFrameConditionModel.from_pretrained(pretrained, subfolder="unet")
         pipeline = MarigoldDepthPipeline.from_pretrained(pretrained, unet=unet)
+
+        _assert_text_encoder_loaded(pipeline.text_encoder, "text_encoder", pretrained)
         pipeline.to(dtype=dtype)
 
         _log_vram("Depth model loaded (CPU)")
