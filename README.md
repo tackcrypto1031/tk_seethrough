@@ -8,6 +8,16 @@ A fork of [ComfyUI-See-through](https://github.com/jtydhr88/ComfyUI-See-through)
 
 ## What's New in This Fork
 
+### Unreleased — Upstream parity and facial layer preservation
+
+- Preserve source PNG alpha by connecting Load Source/Load Image **MASK** to either Generate Layers node's new optional **mask** input.
+- Align Marigold with upstream: **768** inference resolution, model-default depth steps, 8-bit depth precision, and matching tag order. Set `resolution_depth=-1` for the previous full-resolution behavior.
+- Keep the body-only V3 `head` in the final parts; preserve independent V3 facial features through left/right naming, filtering, and face-order guards.
+- Place the PSD `Original` layer below `Parts`/`Runs` and keep the embedded composite consistent with group visibility. Preserve padding/alpha for separately supplied PSD reference images.
+- Update the existing Custom workflow and add [a flat upstream-parity workflow](workflows/tk_seethrough_upstream_parity.json), with fixed seeds and the complete original V3 generator. Auto-fill remains available but is disabled for comparisons.
+
+See [settings, compatibility details, and verification limits](docs/upstream-parity.md). Existing node names and workflows remain supported; V3 checkpoint + full head inference are required for independent eye features.
+
 ### v1.2.8 — Issue #5
 
 - New node **SeeThrough Load Source**: same dropdown as ComfyUI's LoadImage, plus outputs `source_filename` for preserving the original filename in PSD output.
@@ -251,3 +261,4 @@ PSD generation uses [ag-psd](https://github.com/nicasiomg/ag-psd) in the browser
 ## License
 
 MIT
+

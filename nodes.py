@@ -26,6 +26,27 @@ def _sanitize_filename(name):
     return cleaned.rstrip(' .')
 
 
+def _image_to_rgba(image, mask=None):
+    """Restore source alpha from ComfyUI's inverted MASK, without flattening RGB."""
+    src = image[0] if image.ndim == 4 else image
+    img = np.rint(src.detach().cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+    if img.ndim != 3 or img.shape[-1] not in (3, 4):
+        raise ValueError("SeeThrough expects an RGB or RGBA IMAGE")
+    if img.shape[-1] == 3:
+        img = np.concatenate([img, np.full((*img.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
+    if mask is not None:
+        src_mask = mask[0] if mask.ndim == 3 else mask
+        alpha = src_mask.detach().cpu().numpy()
+        if alpha.shape != img.shape[:2]:
+            # ComfyUI LoadImage emits a 64x64 all-zero placeholder for opaque
+            # files, regardless of image size. It carries no alpha to restore.
+            if not np.any(alpha):
+                return img
+            raise ValueError("SeeThrough MASK must match the source IMAGE dimensions")
+        img[..., 3] = np.rint((1.0 - np.clip(alpha, 0, 1)) * 255).astype(np.uint8)
+    return img
+
+
 def _log_vram(label):
     """Log current GPU VRAM usage for profiling."""
     if torch.cuda.is_available():
@@ -394,6 +415,68 @@ class SeeThrough_LoadDepthModel:
         print("[SeeThrough] Depth model loaded to CPU (will move to GPU on demand)", flush=True)
         return (pipeline,)
 
+def _generate_layer_images(pipeline, device, rng, tag_version, num_inference_steps,
+                   fullpage, prompt_embeds=None, pooled_prompt_embeds=None,
+                   body_embeds=None, body_pooled=None, head_embeds=None, head_pooled=None,
+                   enable_head_detail=True, input_img=None, scale=1.0, pad_pos=None, resolution=1280):
+    """Shared upstream V2/V3 generation, including the source-resolution head crop.
+
+    Matches see-through/common/utils/inference_utils.py:apply_layerdiff;
+    ComfyUI only supplies pre-encoded tags and manages model offloading.
+    """
+    run_layer_dict = {}
+
+    if tag_version == "v2":
+        out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
+                       generator=rng, guidance_scale=1.0,
+                       prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+                       fullpage=fullpage)
+        _log_vram("v2 diffusion complete")
+        for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
+            run_layer_dict[tag] = rst
+
+    elif tag_version == "v3":
+        out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
+                       generator=rng, guidance_scale=1.0,
+                       prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
+                       fullpage=fullpage, group_index=0)
+        _log_vram("v3 body diffusion complete")
+        for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_BODY):
+            run_layer_dict[tag] = rst
+
+        if enable_head_detail and "head" in run_layer_dict:
+            head_img = run_layer_dict["head"]
+            nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
+            if nz is not None:
+                hx0, hy0, hw, hh = cv2.boundingRect(nz)
+                hx = int(hx0 * scale) - pad_pos[0]
+                hy = int(hy0 * scale) - pad_pos[1]
+                input_head, (hx1, hy1, hx2, hy2) = _crop_head(input_img, [hx, hy, int(hw * scale), int(hh * scale)])
+                hx1 = int(hx1 / scale + pad_pos[0] / scale)
+                hy1 = int(hy1 / scale + pad_pos[1] / scale)
+                ih, iw = input_head.shape[:2]
+                input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
+
+                out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
+                               generator=rng, guidance_scale=1.0,
+                               prompt_embeds=head_embeds, pooled_prompt_embeds=head_pooled,
+                               fullpage=input_head, group_index=1)
+                _log_vram("v3 head diffusion complete")
+
+                canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
+                coords = np.array([head_pad_pos[1], head_pad_pos[1] + ih, head_pad_pos[0], head_pad_pos[0] + iw])
+                py1, py2, px1, px2 = (coords / scale).astype(np.int64)
+                scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
+
+                for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_HEAD):
+                    rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
+                    full = canvas.copy()
+                    full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
+                    run_layer_dict[tag] = full
+
+    return run_layer_dict
+
+
 class SeeThrough_GenerateLayers:
     @classmethod
     def INPUT_TYPES(s):
@@ -405,6 +488,9 @@ class SeeThrough_GenerateLayers:
                 "resolution": ("INT", {"default": 1280, "min": 512, "max": 2048, "step": 64}),
                 "num_inference_steps": ("INT", {"default": 30, "min": 1, "max": 100}),
             },
+            "optional": {
+                "mask": ("MASK", {"tooltip": "Connect Load Source/Load Image MASK to preserve PNG transparency."}),
+            },
         }
 
     RETURN_TYPES = ("SEETHROUGH_LAYERS", "IMAGE")
@@ -412,17 +498,13 @@ class SeeThrough_GenerateLayers:
     FUNCTION = "generate"
     CATEGORY = "SeeThrough"
 
-    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30):
+    def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30, mask=None):
         pipeline = layerdiff_model
         device = mm.get_torch_device()
         offload = torch.device("cpu")
         seed_everything(seed)
 
-        # Convert ComfyUI IMAGE to numpy RGBA
-        img_np = (image[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-        if img_np.shape[-1] == 3:
-            img_np = np.concatenate([img_np, np.full((*img_np.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
-        input_img = img_np.copy()
+        input_img = _image_to_rgba(image, mask)
 
         fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
         scale = pad_size[0] / resolution
@@ -437,6 +519,10 @@ class SeeThrough_GenerateLayers:
         pipeline.text_encoder.to(device)
         pipeline.text_encoder_2.to(device)
         _log_vram("Text encoders loaded to GPU")
+
+        prompt_embeds, pooled_prompt_embeds = None, None
+        body_embeds, body_pooled = None, None
+        head_embeds, head_pooled = None, None
 
         if tag_version == "v2":
             prompt_embeds, pooled_prompt_embeds = pipeline.encode_cropped_prompt_77tokens(VALID_BODY_PARTS_V2)
@@ -461,53 +547,13 @@ class SeeThrough_GenerateLayers:
 
         rng = torch.Generator(device=device).manual_seed(seed)
 
-        if tag_version == "v2":
-            out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0,
-                           prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
-                           fullpage=fullpage)
-            _log_vram("v2 diffusion complete")
-            for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
-                layer_dict[tag] = rst
-
-        elif tag_version == "v3":
-            out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0,
-                           prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
-                           fullpage=fullpage, group_index=0)
-            _log_vram("v3 body diffusion complete")
-            for rst, tag in zip(out.images, body_tags):
-                layer_dict[tag] = rst
-
-            # Head-level generation
-            head_img = out.images[2]
-            nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
-            if nz is not None:
-                hx0, hy0, hw, hh = cv2.boundingRect(nz)
-                hx = int(hx0 * scale) - pad_pos[0]
-                hy = int(hy0 * scale) - pad_pos[1]
-                input_head, (hx1, hy1, hx2, hy2) = _crop_head(input_img, [hx, hy, int(hw * scale), int(hh * scale)])
-                hx1 = int(hx1 / scale + pad_pos[0] / scale)
-                hy1 = int(hy1 / scale + pad_pos[1] / scale)
-                ih, iw = input_head.shape[:2]
-                input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
-
-                out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                               generator=rng, guidance_scale=1.0,
-                               prompt_embeds=head_embeds, pooled_prompt_embeds=head_pooled,
-                               fullpage=input_head, group_index=1)
-                _log_vram("v3 head diffusion complete")
-
-                canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
-                coords = np.array([head_pad_pos[1], head_pad_pos[1] + ih, head_pad_pos[0], head_pad_pos[0] + iw])
-                py1, py2, px1, px2 = (coords / scale).astype(np.int64)
-                scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
-
-                for rst, tag in zip(out.images, head_tags):
-                    rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
-                    full = canvas.copy()
-                    full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
-                    layer_dict[tag] = full
+        layer_dict = _generate_layer_images(
+            pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+            prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
+            body_embeds=body_embeds, body_pooled=body_pooled,
+            head_embeds=head_embeds, head_pooled=head_pooled,
+            input_img=input_img, scale=scale, pad_pos=pad_pos, resolution=resolution,
+        )
 
         # Offload pipeline back to CPU
         pipeline.unet.to(offload)
@@ -545,6 +591,9 @@ class SeeThrough_GenerateLayers_Custom:
                     "tooltip": "Auto-fill missing layers: if enabled, automatically re-runs inference (up to 5 times) until all expected layers are generated. Expected: v3+head=24, v3 body=13, v2=19."}),
                 "min_alpha_coverage": ("FLOAT", {"default": 0.01, "min": 0.001, "max": 0.1, "step": 0.005,
                     "tooltip": "Minimum alpha coverage ratio to consider a layer valid. Layers below this threshold are treated as missing. Only used when auto_fill is enabled."}),
+            },
+            "optional": {
+                "mask": ("MASK", {"tooltip": "Connect Load Source/Load Image MASK to preserve PNG transparency."}),
             },
         }
 
@@ -591,71 +640,20 @@ class SeeThrough_GenerateLayers_Custom:
                        fullpage, prompt_embeds=None, pooled_prompt_embeds=None,
                        body_embeds=None, body_pooled=None, head_embeds=None, head_pooled=None,
                        enable_head_detail=True, input_img=None, scale=1.0, pad_pos=None, resolution=1280):
-        """Run a single diffusion pass and return the layer_dict."""
-        run_layer_dict = {}
-
-        if tag_version == "v2":
-            out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0,
-                           prompt_embeds=prompt_embeds, pooled_prompt_embeds=pooled_prompt_embeds,
-                           fullpage=fullpage)
-            _log_vram("v2 diffusion complete")
-            for rst, tag in zip(out.images, VALID_BODY_PARTS_V2):
-                run_layer_dict[tag] = rst
-
-        elif tag_version == "v3":
-            out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                           generator=rng, guidance_scale=1.0,
-                           prompt_embeds=body_embeds, pooled_prompt_embeds=body_pooled,
-                           fullpage=fullpage, group_index=0)
-            _log_vram("v3 body diffusion complete")
-            for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_BODY):
-                run_layer_dict[tag] = rst
-
-            if enable_head_detail and "head" in run_layer_dict:
-                head_img = run_layer_dict["head"]
-                nz = cv2.findNonZero((head_img[..., -1] > 15).astype(np.uint8))
-                if nz is not None:
-                    hx0, hy0, hw, hh = cv2.boundingRect(nz)
-                    hx = int(hx0 * scale) - pad_pos[0]
-                    hy = int(hy0 * scale) - pad_pos[1]
-                    input_head, (hx1, hy1, hx2, hy2) = _crop_head(input_img, [hx, hy, int(hw * scale), int(hh * scale)])
-                    hx1 = int(hx1 / scale + pad_pos[0] / scale)
-                    hy1 = int(hy1 / scale + pad_pos[1] / scale)
-                    ih, iw = input_head.shape[:2]
-                    input_head, head_pad_size, head_pad_pos = center_square_pad_resize(input_head, resolution, return_pad_info=True)
-
-                    out = pipeline(strength=1.0, num_inference_steps=num_inference_steps, batch_size=1,
-                                   generator=rng, guidance_scale=1.0,
-                                   prompt_embeds=head_embeds, pooled_prompt_embeds=head_pooled,
-                                   fullpage=input_head, group_index=1)
-                    _log_vram("v3 head diffusion complete")
-
-                    canvas = np.zeros((resolution, resolution, 4), dtype=np.uint8)
-                    coords = np.array([head_pad_pos[1], head_pad_pos[1] + ih, head_pad_pos[0], head_pad_pos[0] + iw])
-                    py1, py2, px1, px2 = (coords / scale).astype(np.int64)
-                    scale_size = (int(head_pad_size[0] / scale), int(head_pad_size[1] / scale))
-
-                    for rst, tag in zip(out.images, VALID_BODY_PARTS_V3_HEAD):
-                        rst = smart_resize(rst, scale_size)[py1:py2, px1:px2]
-                        full = canvas.copy()
-                        full[hy1:hy1 + rst.shape[0], hx1:hx1 + rst.shape[1]] = rst
-                        run_layer_dict[tag] = full
-
-        return run_layer_dict
+        return _generate_layer_images(
+            pipeline, device, rng, tag_version, num_inference_steps, fullpage,
+            prompt_embeds, pooled_prompt_embeds, body_embeds, body_pooled,
+            head_embeds, head_pooled, enable_head_detail, input_img, scale, pad_pos, resolution,
+        )
 
     def generate(self, image, layerdiff_model, seed=42, resolution=1280, num_inference_steps=30,
-                 enable_head_detail=True, auto_fill=False, min_alpha_coverage=0.01):
+                 enable_head_detail=True, auto_fill=False, min_alpha_coverage=0.01, mask=None):
         pipeline = layerdiff_model
         device = mm.get_torch_device()
         offload = torch.device("cpu")
         seed_everything(seed)
 
-        # Convert ComfyUI IMAGE to numpy RGBA
-        img_np = (image[0].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-        if img_np.shape[-1] == 3:
-            img_np = np.concatenate([img_np, np.full((*img_np.shape[:2], 1), 255, dtype=np.uint8)], axis=-1)
-        input_img = img_np.copy()
+        input_img = _image_to_rgba(image, mask)
 
         fullpage, pad_size, pad_pos = center_square_pad_resize(input_img, resolution, return_pad_info=True)
         scale = pad_size[0] / resolution
@@ -851,6 +849,12 @@ class SeeThrough_GenerateDepth:
                 "depth_model": ("SEETHROUGH_DEPTH_MODEL",),
                 "seed": ("INT", {"default": 42, "min": 0, "max": 2**32 - 1}),
             },
+            "optional": {
+                "resolution_depth": ("INT", {"default": 768, "min": -1, "max": 2048, "step": 64,
+                    "tooltip": "Marigold was trained at 768. Use -1 to match the layer generation resolution."}),
+                "num_inference_steps_depth": ("INT", {"default": -1, "min": -1, "max": 100,
+                    "tooltip": "-1 uses the depth model's default denoising steps, matching upstream."}),
+            },
         }
 
     RETURN_TYPES = ("SEETHROUGH_LAYERS_DEPTH", "IMAGE")
@@ -858,13 +862,18 @@ class SeeThrough_GenerateDepth:
     FUNCTION = "generate"
     CATEGORY = "SeeThrough"
 
-    def generate(self, layers, depth_model, seed=42):
+    def generate(self, layers, depth_model, seed=42, resolution_depth=768, num_inference_steps_depth=-1):
         layer_dict = layers.layer_dict
         fullpage = layers.fullpage
         resolution = layers.resolution
         marigold = depth_model
         device = mm.get_torch_device()
         offload = torch.device("cpu")
+        depth_resolution = resolution if resolution_depth == -1 else resolution_depth
+        if depth_resolution < 8 or depth_resolution % 8:
+            raise ValueError("resolution_depth must be -1 or a positive multiple of 8")
+        if num_inference_steps_depth != -1 and num_inference_steps_depth < 1:
+            raise ValueError("num_inference_steps_depth must be -1 or a positive integer")
 
         print("[SeeThrough] GenerateDepth: running Marigold...", flush=True)
         _log_vram("GenerateDepth start")
@@ -875,9 +884,13 @@ class SeeThrough_GenerateDepth:
                         "hair": ["back hair", "front hair"]}
 
         img_list = []
+        # Marigold has a fixed 19-part frame layout. Body-only V3 still needs
+        # a head depth: use its face slot without adding/reordering model frames.
+        head_fallback = "head" in layer_dict and "face" not in layer_dict
         for tag in VALID_BODY_PARTS_V2:
-            if tag in layer_dict:
-                tag_arr = layer_dict[tag].copy()
+            source_tag = "head" if tag == "face" and head_fallback else tag
+            if source_tag in layer_dict:
+                tag_arr = layer_dict[source_tag].copy()
                 tag_arr[..., -1][tag_arr[..., -1] < 15] = 0
                 img_list.append(tag_arr)
             else:
@@ -905,6 +918,10 @@ class SeeThrough_GenerateDepth:
         fullpage_for_depth = fullpage.copy()
         fullpage_for_depth[..., -1] = blended_alpha
         img_list.append(fullpage_for_depth)
+        if depth_resolution != resolution:
+            img_list_input = [smart_resize(img, (depth_resolution, depth_resolution)) for img in img_list]
+        else:
+            img_list_input = img_list
 
         # Move Marigold to GPU for inference
         marigold.to(device=device)
@@ -913,9 +930,14 @@ class SeeThrough_GenerateDepth:
         print("[SeeThrough] Marigold pipeline moved to GPU", flush=True)
 
         seed_everything(seed)
-        pipe_out = marigold(color_map=None, show_progress_bar=False, img_list=img_list)
+        pipe_out = marigold(
+            color_map=None, show_progress_bar=False, img_list=img_list_input,
+            denoising_steps=None if num_inference_steps_depth == -1 else num_inference_steps_depth,
+        )
         _log_vram("Marigold inference complete")
         depth_pred = pipe_out.depth_tensor.to(device="cpu", dtype=torch.float32).numpy()
+        if depth_resolution != resolution:
+            depth_pred = [smart_resize(depth, (resolution, resolution)) for depth in depth_pred]
 
         # Offload Marigold back to CPU
         marigold.to(device=offload)
@@ -924,22 +946,25 @@ class SeeThrough_GenerateDepth:
 
         depth_dict = {}
         for ii, tag in enumerate(VALID_BODY_PARTS_V2):
-            depth = depth_pred[ii]
+            # Upstream saves 8-bit depth PNGs before further_extr reads them.
+            # Match that precision, including ties used for PSD draw ordering.
+            depth = (np.clip(depth_pred[ii], 0, 1) * 255).astype(np.uint8)
             if tag in compose_dict:
                 mask_accum = blended_alpha > 256  # all-False
                 for t, im in zip(compose_dict[tag]["taglist"][::-1], compose_dict[tag]["imlist"][::-1]):
                     mask_local = im[..., -1] > 15
                     mask_invis = np.bitwise_and(mask_accum, mask_local)
-                    depth_local = np.full((resolution, resolution), fill_value=1.0, dtype=np.float32)
+                    depth_local = np.full((resolution, resolution), fill_value=255, dtype=np.uint8)
                     depth_local[mask_local] = depth[mask_local]
                     if np.any(mask_invis):
                         vis = np.bitwise_and(mask_local, np.bitwise_not(mask_invis))
                         if np.any(vis):
                             depth_local[mask_invis] = np.median(depth[vis])
                     mask_accum = np.bitwise_or(mask_accum, mask_local)
-                    depth_dict[t] = depth_local
+                    depth_dict[t] = depth_local.astype(np.float32) / 255.0
             else:
-                depth_dict[tag] = np.clip(depth, 0, 1).astype(np.float32)
+                output_tag = "head" if tag == "face" and head_fallback else tag
+                depth_dict[output_tag] = depth.astype(np.float32) / 255.0
 
         print(f"[SeeThrough] GenerateDepth complete: {len(depth_dict)} depth maps, Marigold offloaded to CPU", flush=True)
 
@@ -985,10 +1010,11 @@ class SeeThrough_PostProcess:
 
         # Build tag2pinfo
         tag2pinfo = {}
-        for tag in layer_dict:
-            img = layer_dict[tag]
-            if tag not in depth_dict:
+        # Preserve upstream info.json's tag order for equal-depth layers.
+        for tag in depth_dict:
+            if tag not in layer_dict:
                 continue
+            img = layer_dict[tag]
             depth = depth_dict[tag]
             mask = img[..., -1] > 10
             if not np.any(mask):
@@ -1064,10 +1090,15 @@ class SeeThrough_PostProcess:
         # Depth ordering adjustments
         if "face" in tag2pinfo:
             face_dm = tag2pinfo["face"]["depth_median"]
-            for t in ["nose", "mouth", "eyes", "eyel", "eyer"]:
+            # Apply the upstream face guard to V3's independently generated
+            # eye features, including the names produced by _part_lr_split.
+            facial_tags = ["nose", "mouth", "eyes", "eyel", "eyer"]
+            for feature in ("eyewhite", "irides", "eyelash", "eyebrow"):
+                facial_tags.extend([feature, f"{feature}-l", f"{feature}-r"])
+            for t in facial_tags:
                 if t in tag2pinfo and tag2pinfo[t]["depth_median"] > face_dm:
                     tag2pinfo[t]["depth_median"] = face_dm - 0.001
-            for t in ["earr", "earl", "ears"]:
+            for t in ["earr", "earl", "ears", "ears-l", "ears-r"]:
                 if t in tag2pinfo:
                     tag2pinfo[t]["depth_median"] = face_dm + 0.001
 
@@ -1100,6 +1131,7 @@ class SeeThrough_SavePSD:
             "optional": {
                 "original_image": ("IMAGE",),
                 "source_filename": ("STRING", {"default": ""}),
+                "original_mask": ("MASK",),
             },
         }
 
@@ -1109,7 +1141,7 @@ class SeeThrough_SavePSD:
     CATEGORY = "SeeThrough"
     OUTPUT_NODE = True
 
-    def save(self, parts, filename_prefix="seethrough", original_image=None, source_filename=""):
+    def save(self, parts, filename_prefix="seethrough", original_image=None, source_filename="", original_mask=None):
         from PIL import Image
         import json
 
@@ -1131,21 +1163,13 @@ class SeeThrough_SavePSD:
 
         base_img_np = None
         if original_image is not None:
-            src_tensor = original_image[0] if original_image.ndim == 4 else original_image
-            base_img_np = (src_tensor.cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-            if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
-                alpha = np.full(base_img_np.shape[:2] + (1,), 255, dtype=np.uint8)
-                base_img_np = np.concatenate([base_img_np, alpha], axis=2)
+            base_img_np = _image_to_rgba(original_image, original_mask)
             if base_img_np.shape[0] != canvas_h or base_img_np.shape[1] != canvas_w:
-                print(
-                    f"[SeeThrough] WARNING: original_image size "
-                    f"({base_img_np.shape[1]}x{base_img_np.shape[0]}) mismatches "
-                    f"frame_size ({canvas_w}x{canvas_h}). Resizing.",
-                    flush=True,
-                )
-                pil = Image.fromarray(base_img_np, mode="RGBA")
-                pil = pil.resize((canvas_w, canvas_h), Image.LANCZOS)
-                base_img_np = np.array(pil)
+                if canvas_h != canvas_w:
+                    raise ValueError("original_image must match a non-square parts canvas")
+                # Match GenerateLayers padding; resizing directly to a square
+                # stretches portrait/landscape references away from their parts.
+                base_img_np = center_square_pad_resize(base_img_np, canvas_w)
         elif parts.get("fullpage") is not None:
             base_img_np = parts["fullpage"]
             if base_img_np.ndim == 3 and base_img_np.shape[2] == 3:
@@ -1265,6 +1289,13 @@ DEFAULT_SPINE_NAMES = {
     "eyebrowl": "eyebrow-left", "eyebrowr": "eyebrow-right",
     "ears": "ears", "earl": "ear-left", "earr": "ear-right",
     "earwear": "earwear",
+    # Canonical names emitted by _part_lr_split (retain legacy aliases above).
+    "irides-l": "irides-left", "irides-r": "irides-right",
+    "eyebrow-l": "eyebrow-left", "eyebrow-r": "eyebrow-right",
+    "eyewhite-l": "eye-white-left", "eyewhite-r": "eye-white-right",
+    "eyelash-l": "eyelash-left", "eyelash-r": "eyelash-right",
+    "ears-l": "ear-left", "ears-r": "ear-right",
+    "handwear-l": "handwear-left", "handwear-r": "handwear-right",
     "nose": "nose", "mouth": "mouth",
     "neck": "neck", "neckwear": "neckwear",
     "topwear": "topwear", "bottomwear": "bottomwear",
@@ -1320,8 +1351,7 @@ class SeeThrough_LayerRename:
             new_tag2pinfo[new_name] = pinfo_copy
 
         print(f"[SeeThrough] LayerRename: {len(new_tag2pinfo)} layers renamed", flush=True)
-        return ({"tag2pinfo": new_tag2pinfo, "frame_size": frame_size,
-                 "all_runs_layers": parts.get("all_runs_layers")},)
+        return ({**parts, "tag2pinfo": new_tag2pinfo},)
 
 
 class SeeThrough_LayerFilter:
@@ -1377,7 +1407,7 @@ class SeeThrough_LayerFilter:
             filtered = {k: v for k, v in tag2pinfo.items() if k not in tag_set}
 
         print(f"[SeeThrough] LayerFilter ({mode}): {len(tag2pinfo)} → {len(filtered)} layers", flush=True)
-        return ({"tag2pinfo": filtered, "frame_size": frame_size},)
+        return ({**parts, "tag2pinfo": filtered},)
 
 
 class SeeThrough_ExportSpine:
@@ -1545,15 +1575,13 @@ class SeeThrough_LoadSource:
         image_path = folder_paths.get_annotated_filepath(image)
         img = Image.open(image_path)
         img = ImageOps.exif_transpose(img)
-        rgb = img.convert("RGB")
+        rgba = img.convert("RGBA")
+        rgb = rgba.convert("RGB")
         arr = np.array(rgb).astype(np.float32) / 255.0
         tensor = torch.from_numpy(arr)[None,]  # [1, H, W, 3]
 
-        if "A" in img.getbands():
-            mask_arr = np.array(img.getchannel("A")).astype(np.float32) / 255.0
-            mask = 1.0 - torch.from_numpy(mask_arr)
-        else:
-            mask = torch.zeros((tensor.shape[1], tensor.shape[2]), dtype=torch.float32)
+        mask_arr = np.array(rgba.getchannel("A")).astype(np.float32) / 255.0
+        mask = 1.0 - torch.from_numpy(mask_arr)
 
         basename = os.path.splitext(os.path.basename(image))[0]
         source_filename = _sanitize_filename(basename)
@@ -1592,3 +1620,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SeeThrough_LayerFilter": "SeeThrough Layer Filter",
     "SeeThrough_ExportSpine": "SeeThrough Export Spine",
 }
+
