@@ -2,7 +2,7 @@
   "id": "seethrough-basic-workflow",
   "revision": 0,
   "last_node_id": 30,
-  "last_link_id": 36,
+  "last_link_id": 37,
   "nodes": [
     {
       "id": 8,
@@ -70,7 +70,6 @@
       "properties": {
         "Node name for S&R": "SeeThrough_ExportSpine",
         "aux_id": "tackcrypto1031/tk_seethrough",
-        "ver": "bbe64e75f48686088b9db1b0941831de8fd0ca79",
         "ue_properties": {
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {},
@@ -107,7 +106,7 @@
         }
       },
       "widgets_values": [
-        "點 Download PSD下載\n\nAll run就是這次所有輪次的圖層包在同一個PSD裡面 (會分群組)"
+        "Download PSD 匯出部件\nOriginal 在底層；Parts 預設隱藏\n開啟 Parts 查看拆圖，關閉 Original 可檢查透明部位\nAll Runs 僅在開啟 auto_fill 後提供"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -149,8 +148,8 @@
         -201.66120069805845
       ],
       "size": [
-        312.5730817733304,
-        164.91232639383276
+        370,
+        225
       ],
       "flags": {},
       "order": 2,
@@ -165,7 +164,7 @@
         }
       },
       "widgets_values": [
-        "enable_head_detail\n如果關掉就不拆頭部五官那些,可加速\n\nauto_fill打開會自動偵測缺失圖層,並自動根原圖做對比,選擇更接近原圖的圖層做選擇,避免第一輪拆的圖層是醜的,第二輪是好看的,可是只偵測到第一輪\"有圖層\"而不是\"正確圖層\"這件事\n最多5層,若提前滿足條件 (補滿24層&系統判斷跟原圖接近) 會提前結束,不會跑滿5層"
+        "V3 五官拆分：enable_head_detail = true\n原專案比較：1280 / 30 steps / seed 42 fixed\n深度：768 / model-default steps / seed 42 fixed\nMASK 已連接，保留 PNG 透明度\nauto_fill = false（比較時保留單次生成的完整圖層）\n舊 V2 模型不會產生 V3 的獨立虹膜、眼白等圖層"
       ],
       "color": "#432",
       "bgcolor": "#653"
@@ -178,8 +177,8 @@
         40.18054933737258
       ],
       "size": [
-        210,
-        98
+        260,
+        150
       ],
       "flags": {},
       "order": 7,
@@ -220,6 +219,14 @@
           [
             "19",
             "seed"
+          ],
+          [
+            "19",
+            "resolution_depth"
+          ],
+          [
+            "19",
+            "num_inference_steps_depth"
           ]
         ],
         "cnr_id": "comfy-core",
@@ -256,6 +263,12 @@
           "name": "layerdiff_model",
           "type": "SEETHROUGH_LAYERDIFF_MODEL",
           "link": 29
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "shape": 7,
+          "link": 37
         }
       ],
       "outputs": [
@@ -275,7 +288,6 @@
       "properties": {
         "Node name for S&R": "SeeThrough_GenerateLayers_Custom",
         "aux_id": "tackcrypto1031/tk_seethrough",
-        "ver": "a55dbef1367d827865c7fffb0951e6fcf818a42c",
         "ue_properties": {
           "widget_ue_connectable": {},
           "input_ue_unconnectable": {},
@@ -283,8 +295,8 @@
         }
       },
       "widgets_values": [
-        2368992073,
-        "randomize",
+        42,
+        "fixed",
         1280,
         30,
         true,
@@ -318,7 +330,9 @@
         {
           "name": "mask",
           "type": "MASK",
-          "links": null
+          "links": [
+            37
+          ]
         },
         {
           "name": "source_filename",
@@ -329,7 +343,8 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "SeeThrough_LoadSource"
+        "Node name for S&R": "SeeThrough_LoadSource",
+        "aux_id": "tackcrypto1031/tk_seethrough"
       },
       "widgets_values": [
         "03dern5jtaybbkuh32oh6ygzxa4gbv1.png",
@@ -370,6 +385,12 @@
             "name": "source_filename"
           },
           "link": 36
+        },
+        {
+          "name": "original_mask",
+          "type": "MASK",
+          "shape": 7,
+          "link": null
         }
       ],
       "outputs": [
@@ -381,9 +402,7 @@
       ],
       "properties": {
         "Node name for S&R": "SeeThrough_SavePSD",
-        "aux_id": "jtydhr88/ComfyUI-See-through",
-        "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-        "cnr_id": "comfyui-see-through",
+        "aux_id": "tackcrypto1031/tk_seethrough",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.5.2",
@@ -455,6 +474,14 @@
       7,
       2,
       "STRING"
+    ],
+    [
+      37,
+      30,
+      1,
+      23,
+      2,
+      "MASK"
     ]
   ],
   "groups": [
@@ -480,7 +507,7 @@
         "state": {
           "lastGroupId": 2,
           "lastNodeId": 30,
-          "lastLinkId": 36,
+          "lastLinkId": 37,
           "lastRerouteId": 0
         },
         "revision": 0,
@@ -589,9 +616,7 @@
             ],
             "properties": {
               "Node name for S&R": "SeeThrough_LoadLayerDiffModel",
-              "aux_id": "jtydhr88/ComfyUI-See-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "cnr_id": "comfyui-see-through",
+              "aux_id": "tackcrypto1031/tk_seethrough",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
@@ -630,6 +655,24 @@
                 "name": "depth_model",
                 "type": "SEETHROUGH_DEPTH_MODEL",
                 "link": 21
+              },
+              {
+                "name": "resolution_depth",
+                "type": "INT",
+                "shape": 7,
+                "widget": {
+                  "name": "resolution_depth"
+                },
+                "link": null
+              },
+              {
+                "name": "num_inference_steps_depth",
+                "type": "INT",
+                "shape": 7,
+                "widget": {
+                  "name": "num_inference_steps_depth"
+                },
+                "link": null
               }
             ],
             "outputs": [
@@ -650,9 +693,7 @@
             ],
             "properties": {
               "Node name for S&R": "SeeThrough_GenerateDepth",
-              "aux_id": "jtydhr88/ComfyUI-See-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "cnr_id": "comfyui-see-through",
+              "aux_id": "tackcrypto1031/tk_seethrough",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
@@ -660,8 +701,10 @@
               }
             },
             "widgets_values": [
-              1074755827,
-              "randomize"
+              42,
+              "fixed",
+              768,
+              -1
             ]
           },
           {
@@ -706,9 +749,7 @@
             ],
             "properties": {
               "Node name for S&R": "SeeThrough_PostProcess",
-              "aux_id": "jtydhr88/ComfyUI-See-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "cnr_id": "comfyui-see-through",
+              "aux_id": "tackcrypto1031/tk_seethrough",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",
@@ -747,9 +788,7 @@
             ],
             "properties": {
               "Node name for S&R": "SeeThrough_LoadDepthModel",
-              "aux_id": "jtydhr88/ComfyUI-See-through",
-              "ver": "c65edfb0828966a6e70fe7e52425e594a10630a8",
-              "cnr_id": "comfyui-see-through",
+              "aux_id": "tackcrypto1031/tk_seethrough",
               "ue_properties": {
                 "widget_ue_connectable": {},
                 "version": "7.5.2",

@@ -8,6 +8,16 @@
 
 ## 本 Fork 新增功能
 
+### 尚未發布 — 原專案流程對齊與五官圖層保留
+
+- 將 Load Source／Load Image 的 **MASK** 連到兩種 Generate Layers 節點新增的選用 **mask** 輸入，保留 PNG 原始透明度。
+- 深度推論對齊原專案：預設 **768** 解析度、模型預設步數、8 位元深度精度與相同的標籤順序。`resolution_depth=-1` 可使用先前的完整拆圖解析度。
+- 關閉 V3 頭部細節時保留 `head`；修正 V3 五官左右圖層的命名、篩選相容性與臉部前後排序保護。
+- PSD 的 `Original` 放在 `Parts`／`Runs` 下方，合成預覽符合群組可見性；另接原圖時保留比例與透明度。
+- 更新現有 Custom 工作流，新增[原專案對齊工作流](workflows/tk_seethrough_upstream_parity.json)：使用原始 V3 生成節點、固定 seed、完整頭部推論。自動補圖仍可使用，比較時預設關閉。
+
+詳見[參數、相容性與驗證範圍](docs/upstream-parity.md)。保留既有節點名稱與工作流；獨立虹膜、眼白、睫毛等圖層需要 V3 模型及完整頭部推論。尚未以使用者原圖進行 GPU 畫質比較。
+
 ### v1.2.8 — Issue #5
 
 - 新增節點 **SeeThrough Load Source**:行為與 ComfyUI LoadImage 相同,額外輸出 `source_filename`,讓最終 PSD 保留原始檔名。
@@ -247,3 +257,4 @@ PSD 生成使用瀏覽器端的 [ag-psd](https://github.com/nicasiomg/ag-psd) �
 ## 授權
 
 MIT
+

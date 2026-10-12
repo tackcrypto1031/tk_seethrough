@@ -111,11 +111,12 @@ async function createPSD(layerInfo, psdType) {
             origCanvas.width = width;
             origCanvas.height = height;
             origCanvas.getContext("2d").drawImage(origImg, 0, 0, width, height);
-            const prevComposite = compositeCtx.globalCompositeOperation;
-            compositeCtx.globalCompositeOperation = "destination-over";
+            // Parts is hidden initially, so the embedded composite must show
+            // the same visible Original layer as Photoshop.
+            compositeCtx.clearRect(0, 0, width, height);
             compositeCtx.drawImage(origImg, 0, 0, width, height);
-            compositeCtx.globalCompositeOperation = prevComposite;
-            children.push({
+            // ag-psd children are bottom-to-top, like the layer PNG list.
+            children.unshift({
                 name: "Original",
                 hidden: false,
                 canvas: origCanvas,
@@ -224,7 +225,7 @@ async function createAllRunsPSD(layerInfo) {
             compositeCtx.globalCompositeOperation = "destination-over";
             compositeCtx.drawImage(origImg, 0, 0, width, height);
             compositeCtx.globalCompositeOperation = prev;
-            children.push({
+            children.unshift({
                 name: "Original",
                 hidden: false,
                 canvas: origCanvas,
@@ -376,3 +377,4 @@ app.registerExtension({
 });
 
 console.log("[SeeThrough] PSD extension loaded");
+
